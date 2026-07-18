@@ -125,7 +125,8 @@ impl Binder {
             keybinds.insert(binding.0.clone());
         }
         keybinds.insert(self.toggle_bindings_key);
-        postcard::to_io(&keybinds, &socket_core_end).expect("postcard should be able to serialize");
+        postcard::to_io(&keybinds, &input_socket).expect("postcard should be able to serialize");
+
         // Start thread pool.
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(self.max_threads as usize)

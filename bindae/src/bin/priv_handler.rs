@@ -30,16 +30,12 @@ impl PrivHandler {
         std::mem::forget(socket_stream);
 
         let (input_socket, worker_sockets) = Self::get_sockets(ctx.nb_threads()).unwrap();
-        let bindings: HashSet<Keybind> =
-            postcard::from_io((std::io::stdin(), &mut [0; 256]))
-                .unwrap()
-                .0;
 
         // Use read data.
         let uinput_share = uinput_manager::launch_virtual_device()
             .expect("uinput manager shoudl launch successfully");
         let input_share = input_manager::launch_input_listener(
-            bindings,
+            // bindings,
             input_socket,
             uinput_share.uinput_sender().clone(),
         )

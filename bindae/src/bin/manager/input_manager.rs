@@ -29,7 +29,7 @@ use libdae::{
 use nix::poll::{PollFlags, PollTimeout, poll};
 
 pub fn launch_input_listener(
-    bindings: HashSet<Keybind>,
+    // bindings: HashSet<Keybind>,
     input_socket: UnixStream,
     uinput_channel: Sender<message::MsgToUInput>,
 ) -> std::io::Result<InputShare> {
@@ -85,8 +85,7 @@ pub fn launch_input_listener(
         device_list.push(dev);
     }
     let handle = std::thread::spawn(move || {
-        input_loop(device_list, uinput_channel, input_socket, bindings)
-            .expect("input loop should not fail");
+        input_loop(device_list, uinput_channel, input_socket).expect("input loop should not fail");
     });
     Ok(InputShare { handle })
 }
@@ -94,8 +93,8 @@ fn input_loop(
     mut device_list: Vec<Device>,
     uinput_channel: Sender<message::MsgToUInput>,
     input_socket: UnixStream,
-    mut bindings: HashSet<Keybind>,
 ) -> std::io::Result<()> {
+    let mut bindings: HashSet<Keybind> = HashSet::new();
     // Build KeyCode to scancode map for each device.
     let mut kts_maps: Vec<HashMap<KeyCode, u32>> = Vec::new();
     for device in &device_list {
