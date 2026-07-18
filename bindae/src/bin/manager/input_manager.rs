@@ -95,25 +95,6 @@ fn input_loop(
     input_socket: UnixStream,
 ) -> std::io::Result<()> {
     let mut bindings: HashSet<Keybind> = HashSet::new();
-    // Build KeyCode to scancode map for each device.
-    let mut kts_maps: Vec<HashMap<KeyCode, u32>> = Vec::new();
-    for device in &device_list {
-        let mut kts: HashMap<KeyCode, u32> = HashMap::new();
-        for i in 0..u16::MAX {
-            match device.get_scancode_by_index(i) {
-                Ok((kc, scanc)) => {
-                    let mut scanc_sum = 0;
-                    for (i, v) in scanc.into_iter().enumerate() {
-                        // Obtain the scandcode value by summing subsequent byte using little endianness.
-                        scanc_sum += (v as u32) << (i * 8);
-                    }
-                    kts.insert(KeyCode::from_index(kc as usize), scanc_sum);
-                }
-                Err(_) => break,
-            }
-        }
-        kts_maps.push(kts);
-    }
     // Listen to devices.
     let mut polling_fds: Vec<_> = device_list
         .iter()

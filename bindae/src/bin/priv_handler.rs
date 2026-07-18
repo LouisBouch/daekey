@@ -35,7 +35,6 @@ impl PrivHandler {
         let uinput_share = uinput_manager::launch_virtual_device()
             .expect("uinput manager shoudl launch successfully");
         let input_share = input_manager::launch_input_listener(
-            // bindings,
             input_socket,
             uinput_share.uinput_sender().clone(),
         )
@@ -43,6 +42,8 @@ impl PrivHandler {
 
         // Spin up workers.
         let handles = Self::launch_workers(worker_sockets, uinput_share.uinput_sender());
+
+        // Listen for parent death.
         thread::spawn(|| {
             let mut buf = [0; 256];
             let stdin = &std::io::stdin();
@@ -51,12 +52,12 @@ impl PrivHandler {
                 Ok(_) => println!("Received unexpected message from stdin"),
                 Err(e) => match e {
                     postcard::Error::DeserializeUnexpectedEnd => {
-                        eprintln!("parent process died, killing process: '{e}'");
+                        eprintln!("parent process died, killing current process: '{e}'");
                         std::process::exit(1);
                     }
                     _ => {
                         eprintln!(
-                            "unexpected error, could not read from socket, killing process: '{e}'"
+                            "unexpected error, could not read from socket, killing current process: '{e}'"
                         );
                         std::process::exit(1);
                     }
