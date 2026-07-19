@@ -2,6 +2,7 @@ pub use evdev::KeyCode;
 pub mod binder;
 pub mod keys;
 pub mod api;
+pub mod display_monitor;
 #[doc(hidden)]
 pub mod message;
 pub mod modifiers;

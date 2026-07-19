@@ -1,9 +1,8 @@
 mod manager;
 use crossbeam_channel::Sender;
-use libdae::{keys::Keybind, message};
+use libdae::message;
 use manager::{input_manager, uinput_manager};
 use std::{
-    collections::HashSet,
     io::IoSliceMut,
     os::{
         fd::{AsRawFd, FromRawFd},
@@ -32,7 +31,7 @@ impl PrivHandler {
         let (input_socket, worker_sockets) = Self::get_sockets(ctx.nb_threads()).unwrap();
 
         // Use read data.
-        let uinput_share = uinput_manager::launch_virtual_device()
+        let uinput_share = uinput_manager::launch_uinput_listener()
             .expect("uinput manager shoudl launch successfully");
         let input_share = input_manager::launch_input_listener(
             input_socket,

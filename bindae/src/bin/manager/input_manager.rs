@@ -1,6 +1,6 @@
 //! Handles input devices..
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     os::{
         fd::{AsRawFd, BorrowedFd},
         unix::net::UnixStream,
@@ -21,7 +21,7 @@ impl InputShare {
 }
 
 use crossbeam_channel::Sender;
-use evdev::{Device, EvdevEnum, KeyCode};
+use evdev::{Device, KeyCode};
 use libdae::{
     keys::{KeyAction, KeyState, Keybind},
     message, modifiers,
@@ -122,6 +122,7 @@ fn input_loop(
                 continue;
             }
             // Message for input and not from a device.
+            // This channel is exclusively used to send bindings.
             if poll_fd_id == polling_fds.len() - 1 {
                 bindings = postcard::from_io((&input_socket, &mut [0; 256])).unwrap().0;
                 continue;
