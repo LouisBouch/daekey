@@ -54,14 +54,16 @@ impl ScreenSpace {
                 sort_monitors.push(monitor.clone());
             }
         }
-        dbg!(ScreenSpace {
-            range,
-            monitors: sort_monitors.clone(),
-        });
         ScreenSpace {
             range,
             monitors: sort_monitors,
         }
+    }
+    pub fn range(&self) -> (Point, Point) {
+        self.range
+    }
+    pub fn monitors(&self) -> &[MonitorInfo] {
+        &self.monitors
     }
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -73,6 +75,17 @@ pub struct MonitorInfo {
     height: Pixel,
     /// Position of the origin relative ot the other monitors.
     origin: Point,
+}
+impl MonitorInfo {
+    pub fn width(&self) -> Pixel {
+        self.width
+    }
+    pub fn height(&self) -> Pixel {
+        self.height
+    }
+    pub fn origin(&self) -> Point {
+        self.origin
+    }
 }
 
 pub fn get_monitor_info() -> Result<ScreenSpace, Box<dyn Error>> {

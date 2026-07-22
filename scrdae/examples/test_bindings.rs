@@ -3,7 +3,7 @@ use std::{sync::{Arc, atomic::AtomicBool}, thread, time::Duration};
 use libdae::{
     KeyCode,
     binder::Binder,
-    keys::{KeyAction, KeyState, Keybind},
+    input::{KeyAction, KeyState, Keybind},
     modifiers,
 };
 

@@ -7,7 +7,7 @@ use std::{
 use evdev::KeyCode;
 
 use crate::{
-    keys::KeyAction, message::{self, MsgToUInput}, modifiers
+    input::KeyAction, message::{self, MsgToUInput}, modifiers
 };
 
 /// Acts as an api for the user to request command from the privileged process.

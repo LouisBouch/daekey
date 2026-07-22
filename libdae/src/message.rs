@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use crate::{keys::{KeyAction, Keybind}, modifiers::Modifiers};
+use crate::{input::{KeyAction, Keybind, MouseAction}, modifiers::Modifiers};
 use crossbeam_channel::Sender;
 use evdev::KeyCode;
 use serde::{Deserialize, Serialize};
@@ -27,6 +27,8 @@ pub enum MsgToWorker {
 pub enum MsgToUInput {
     SendKeyActions(Vec<KeyAction>),
     SendKeyTap(KeyCode, Modifiers),
+    SendMouseActions(Vec<MouseAction>),
+    SendMouseClick(KeyCode, Modifiers),
 }
 
 /// Mesasge to Input thread.

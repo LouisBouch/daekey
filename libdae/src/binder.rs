@@ -15,7 +15,10 @@ use nix::sys::socket::{ControlMessage, MsgFlags, sendmsg};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    api::Api, display_monitor::{self, ScreenSpace}, keys::{KeyState, Keybind}, modifiers
+    api::Api,
+    display_monitor::{self, ScreenSpace},
+    input::{KeyState, Keybind},
+    modifiers,
 };
 
 /// Holds everything necessary for the app to work.
@@ -103,9 +106,10 @@ impl Binder {
         // Notify the privileged process of the context.
         let context = SetupContext {
             nb_threads: self.max_threads,
+            screen_space: display_monitor::get_monitor_info()
+                .expect("displays should have fetchable information"),
         };
         // TODO: Don't panic when no size, just remove absolute cursor feature.
-        display_monitor::get_monitor_info().expect("displays should have fetchable information");
         postcard::to_io(&context, &socket_core_end).expect("postcard should be able to serialize");
         // Wait for context acknowledgement from the privileged process, otherwise the ancillary data
         // from socket creation will get tacked on to the last message sent.
@@ -222,14 +226,14 @@ impl Binder {
 pub struct SetupContext {
     /// Number of threads to deploy
     nb_threads: u16,
-    // /// Information about the monitor layout.
-    // screen_space: ScreenSpace,
+    /// Information about the monitor layout.
+    screen_space: ScreenSpace,
 }
 impl SetupContext {
     pub fn nb_threads(&self) -> u16 {
         self.nb_threads
     }
-    // pub fn screen_space(&self) -> &ScreenSpace {
-    //     &self.screen_space
-    // }
+    pub fn screen_space(&self) -> &ScreenSpace {
+        &self.screen_space
+    }
 }

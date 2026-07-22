@@ -6,7 +6,12 @@ use evdev::{
     AbsInfo, AbsoluteAxisCode, AttributeSet, KeyCode, PropType, RelativeAxisCode, UinputAbsSetup,
     uinput::VirtualDevice,
 };
-use libdae::{keys::KeyState, message, modifiers};
+use libdae::{
+    display_monitor::ScreenSpace,
+    input::KeyState,
+    message,
+    modifiers::{self, Modifiers},
+};
 
 pub struct UInputShare {
     handle: JoinHandle<()>,
@@ -23,7 +28,7 @@ impl UInputShare {
     }
 }
 
-pub fn launch_uinput_listener() -> std::io::Result<UInputShare> {
+pub fn launch_uinput_listener(screen_space: &ScreenSpace) -> std::io::Result<UInputShare> {
     let mut kbd_key_set: AttributeSet<KeyCode> = AttributeSet::new();
     //reference: https://docs.rs/evdev/latest/src/evdev/scancodes.rs.html
     for i in (0..=248).chain(0x160..=0x21e).chain(0x230..=0x27a) {
@@ -49,7 +54,9 @@ pub fn launch_uinput_listener() -> std::io::Result<UInputShare> {
         .with_relative_axes(&mouse_rel_axis)?
         .build()?;
 
-    let info_xy = AbsInfo::new(0, 0, i32::MAX as i32 / 2, 0, 0, 1);
+    let range = screen_space.range();
+    let info_x = AbsInfo::new(0, range.0[0], range.1[0] - 1, 0, 0, 1);
+    let info_y = AbsInfo::new(0, range.0[1], range.1[1] - 1, 0, 0, 1);
     let mut mouse_key_set_abs: AttributeSet<KeyCode> = AttributeSet::new();
     mouse_key_set_abs.insert(KeyCode::new(0x140)); //tablet pen
     let mut abs_prop: AttributeSet<PropType> = AttributeSet::new();
@@ -57,8 +64,8 @@ pub fn launch_uinput_listener() -> std::io::Result<UInputShare> {
     let virt_mouse_abs = evdev::uinput::VirtualDevice::builder()?
         .name("virt_mouse_abs")
         .with_keys(&mouse_key_set_abs)?
-        .with_absolute_axis(&UinputAbsSetup::new(AbsoluteAxisCode::ABS_X, info_xy))?
-        .with_absolute_axis(&UinputAbsSetup::new(AbsoluteAxisCode::ABS_Y, info_xy))?
+        .with_absolute_axis(&UinputAbsSetup::new(AbsoluteAxisCode::ABS_X, info_x))?
+        .with_absolute_axis(&UinputAbsSetup::new(AbsoluteAxisCode::ABS_Y, info_y))?
         .build()?;
 
     let (sender, receiver) = crossbeam_channel::unbounded::<message::MsgToUInput>();
@@ -83,11 +90,11 @@ fn uinput_loop(
     loop {
         match receiver.recv() {
             Ok(msg) => match msg {
-                message::MsgToUInput::SendKeyActions(key_events) => {
+                message::MsgToUInput::SendKeyActions(key_actions) => {
                     let mut events = Vec::new();
-                    for key_event in &key_events {
-                        let state = key_event.state as i32;
-                        let key = key_event.key;
+                    for key_action in &key_actions {
+                        let state = key_action.state as i32;
+                        let key = key_action.key;
                         events.push(evdev::InputEvent::new_now(type_key, key.code(), state));
                         let is_key_modi = modifiers::modifier_from_keycode(key);
                         if state == 0 {
@@ -99,76 +106,125 @@ fn uinput_loop(
                         };
                     }
                     match virt_kbd.emit(&events) {
-                        Err(e) => eprintln!("failed to send keys '{key_events:?}': {e}"),
-                        _ => {
-                            // println!("sent series: {events:?}");
+                        Err(e) => eprintln!("failed to send keys '{key_actions:?}': {e}"),
+                        _ => (),
+                    }
+                }
+                message::MsgToUInput::SendKeyTap(key_code, req_modifiers) => {
+                    send_full_motion(key_code, &mut virt_kbd, cur_modifiers, req_modifiers);
+                }
+                message::MsgToUInput::SendMouseActions(mouse_actions) => {
+                    let mut rel_events = Vec::new();
+                    // Add these in first to ensure the kernel accepts to move the cursor to the
+                    // same position twice.
+                    let mut abs_events = vec![
+                        evdev::InputEvent::new_now(
+                            type_mouse_abs,
+                            evdev::AbsoluteAxisCode::ABS_X.0,
+                            -1,
+                        ),
+                        evdev::InputEvent::new_now(
+                            type_mouse_abs,
+                            evdev::AbsoluteAxisCode::ABS_Y.0,
+                            -1,
+                        ),
+                    ];
+
+                    for mouse_action in &mouse_actions {
+                        match mouse_action {
+                            libdae::input::MouseAction::Abs(mouse_abs_action) => {
+                                let axis = mouse_abs_action.axis;
+                                let pos = mouse_abs_action.pos;
+                                abs_events.push(evdev::InputEvent::new_now(
+                                    type_mouse_rel,
+                                    axis.0,
+                                    pos,
+                                ));
+                            }
+                            libdae::input::MouseAction::Rel(mouse_rel_action) => {
+                                let axis = mouse_rel_action.axis;
+                                let value = mouse_rel_action.value;
+                                rel_events.push(evdev::InputEvent::new_now(
+                                    type_mouse_rel,
+                                    axis.0,
+                                    value,
+                                ));
+                            }
+                            libdae::input::MouseAction::Key(key_action) => {
+                                let state = key_action.state as i32;
+                                let key = key_action.key;
+                                rel_events.push(evdev::InputEvent::new_now(
+                                    type_key,
+                                    key.code(),
+                                    state,
+                                ));
+                            }
+                        }
+                    }
+                    if !rel_events.is_empty() {
+                        match virt_mouse_rel.emit(&rel_events) {
+                            Err(e) => {
+                                eprintln!("failed to send mouse actions '{rel_events:?}': {e}")
+                            }
+                            _ => (),
+                        }
+                    }
+                    if !abs_events.is_empty() {
+                        match virt_mouse_abs.emit(&abs_events) {
+                            Err(e) => {
+                                eprintln!("failed to send mouse actions '{abs_events:?}': {e}")
+                            }
+                            _ => (),
                         }
                     }
                 }
-                message::MsgToUInput::SendKeyTap(key, req_modi) => {
-                    let mut events = Vec::new();
-                    // Modifiers to add or remove for the duration of the keypress.
-                    // Undone after key is sent.
-                    let mod_to_add = modifiers::keycodes_from_modifiers(!cur_modifiers & req_modi);
-                    let mod_to_rm = modifiers::keycodes_from_modifiers(cur_modifiers & !req_modi);
-                    for mod_code in &mod_to_add {
-                        events.push(evdev::InputEvent::new_now(type_key, mod_code.code(), 1));
-                    }
-                    for mod_code in &mod_to_rm {
-                        events.push(evdev::InputEvent::new_now(type_key, mod_code.code(), 0));
-                    }
-                    events.push(evdev::InputEvent::new_now(
-                        type_key,
-                        key.code(),
-                        KeyState::Pressed as i32,
-                    ));
-                    events.push(evdev::InputEvent::new_now(
-                        type_key,
-                        key.code(),
-                        KeyState::Released as i32,
-                    ));
-                    for mod_code in &mod_to_add {
-                        events.push(evdev::InputEvent::new_now(type_key, mod_code.code(), 0));
-                    }
-                    for mod_code in &mod_to_rm {
-                        events.push(evdev::InputEvent::new_now(type_key, mod_code.code(), 1));
-                    }
-                    // virt_mouse_rel.emit(&[evdev::InputEvent::new_now(type_mouse_rel, evdev::RelativeAxisCode::REL_X.0, 1)]);
-                    virt_mouse_abs
-                        .emit(&[
-                            evdev::InputEvent::new_now(type_key, 0x140, 0),
-                            evdev::InputEvent::new_now(
-                                type_mouse_abs,
-                                evdev::AbsoluteAxisCode::ABS_X.0,
-                                -1,
-                            ),
-                            evdev::InputEvent::new_now(
-                                type_mouse_abs,
-                                evdev::AbsoluteAxisCode::ABS_Y.0,
-                                -1,
-                            ),
-                            evdev::InputEvent::new_now(
-                                type_mouse_abs,
-                                evdev::AbsoluteAxisCode::ABS_X.0,
-                                0,
-                            ),
-                            evdev::InputEvent::new_now(
-                                type_mouse_abs,
-                                evdev::AbsoluteAxisCode::ABS_Y.0,
-                                0,
-                            ),
-                        ])
-                        .unwrap();
-                    // virt_mouse_abs.emit(&[ evdev::InputEvent::new_now(type_key, 0x140,0)]);
-                    match virt_kbd.emit(&events) {
-                        Err(e) => eprintln!("failed to tap key '{key:?}': {e}"),
-                        _ => {
-                            // println!("sent tap: {events:?}");
-                        }
-                    }
+                message::MsgToUInput::SendMouseClick(key_code, req_modifiers) => {
+                    send_full_motion(key_code, &mut virt_mouse_rel, cur_modifiers, req_modifiers);
                 }
             },
             Err(e) => eprintln!("failed to receive message: {}", e),
+        }
+    }
+}
+/// Sends a full key motion using specified modifiers. Full motion implies a down and up action.
+fn send_full_motion(
+    key_code: KeyCode,
+    virt_dev: &mut VirtualDevice,
+    cur_modifiers: Modifiers,
+    req_modifiers: Modifiers,
+) {
+    let type_key = evdev::EventType::KEY.0;
+    let mut events = Vec::new();
+    // Modifiers to add or remove for the duration of the keypress.
+    // Undone after key is sent.
+    let mod_to_add = modifiers::keycodes_from_modifiers(!cur_modifiers & req_modifiers);
+    let mod_to_rm = modifiers::keycodes_from_modifiers(cur_modifiers & !req_modifiers);
+    for mod_code in &mod_to_add {
+        events.push(evdev::InputEvent::new_now(type_key, mod_code.code(), 1));
+    }
+    for mod_code in &mod_to_rm {
+        events.push(evdev::InputEvent::new_now(type_key, mod_code.code(), 0));
+    }
+    events.push(evdev::InputEvent::new_now(
+        type_key,
+        key_code.code(),
+        KeyState::Pressed as i32,
+    ));
+    events.push(evdev::InputEvent::new_now(
+        type_key,
+        key_code.code(),
+        KeyState::Released as i32,
+    ));
+    for mod_code in &mod_to_add {
+        events.push(evdev::InputEvent::new_now(type_key, mod_code.code(), 0));
+    }
+    for mod_code in &mod_to_rm {
+        events.push(evdev::InputEvent::new_now(type_key, mod_code.code(), 1));
+    }
+    match virt_dev.emit(&events) {
+        Err(e) => eprintln!("failed to tap key '{key_code:?}': {e}"),
+        _ => {
+            // println!("sent tap: {events:?}");
         }
     }
 }

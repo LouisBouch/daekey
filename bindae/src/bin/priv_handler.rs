@@ -31,8 +31,8 @@ impl PrivHandler {
         let (input_socket, worker_sockets) = Self::get_sockets(ctx.nb_threads()).unwrap();
 
         // Use read data.
-        let uinput_share = uinput_manager::launch_uinput_listener()
-            .expect("uinput manager shoudl launch successfully");
+        let uinput_share = uinput_manager::launch_uinput_listener(ctx.screen_space())
+            .expect("uinput manager should launch successfully");
         let input_share = input_manager::launch_input_listener(
             input_socket,
             uinput_share.uinput_sender().clone(),

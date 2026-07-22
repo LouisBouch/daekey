@@ -1,6 +1,7 @@
 pub use evdev::KeyCode;
+pub use evdev::RelativeAxisCode;
 pub mod binder;
-pub mod keys;
+pub mod input;
 pub mod api;
 pub mod display_monitor;
 #[doc(hidden)]
