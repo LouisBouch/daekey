@@ -7,7 +7,8 @@ use std::{
 use evdev::KeyCode;
 
 use crate::{
-    input::KeyAction, message::{self, MsgToUInput}, modifiers
+    input::{KeyAction, MouseAction},
+    message::{self, AppliedModifiers, MsgToUInput},
 };
 
 /// Acts as an api for the user to request command from the privileged process.
@@ -39,9 +40,19 @@ impl Api {
         let mes = message::MsgToUInput::SendKeyActions(actions);
         self.send_msg(mes);
     }
-    /// Send a key press followed by release to the compositor through the privileged process
-    pub fn send_key_tap(&self, key: KeyCode, modifiers: modifiers::Modifiers) {
+    /// Send a key press followed by release to the compositor through the privileged process.
+    pub fn send_key_tap(&self, key: KeyCode, modifiers: AppliedModifiers) {
         let mes = message::MsgToUInput::SendKeyTap(key, modifiers);
+        self.send_msg(mes);
+    }
+    /// Send a key press for the mouse followed by release to the compositor through the privileged process.
+    pub fn send_mouse_click(&self, key: KeyCode, modifiers: AppliedModifiers) {
+        let mes = message::MsgToUInput::SendMouseClick(key, modifiers);
+        self.send_msg(mes);
+    }
+    /// Send a relative mouse movement to the compositor through the privileged process.
+    pub fn send_mouse_actions(&self, actions: Vec<MouseAction>) {
+        let mes = message::MsgToUInput::SendMouseActions(actions);
         self.send_msg(mes);
     }
     /// Send a message to the privileged  process' UInput through a socket.

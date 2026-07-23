@@ -22,13 +22,21 @@ pub enum MsgToCore {
 pub enum MsgToWorker {
     UInputRequest(MsgToUInput),
 }
+/// Decides how the modifiers are applied.
+#[derive(Serialize, Deserialize, Debug)]
+pub enum AppliedModifiers {
+    /// Use the modifiers currently active.
+    Current,
+    /// Ensure an exact set of modifiers is active.
+    Exact(Modifiers),
+}
 /// Mesasge to UInput thread.
 #[derive(Serialize, Deserialize, Debug)]
 pub enum MsgToUInput {
     SendKeyActions(Vec<KeyAction>),
-    SendKeyTap(KeyCode, Modifiers),
+    SendKeyTap(KeyCode, AppliedModifiers),
     SendMouseActions(Vec<MouseAction>),
-    SendMouseClick(KeyCode, Modifiers),
+    SendMouseClick(KeyCode, AppliedModifiers),
 }
 
 /// Mesasge to Input thread.

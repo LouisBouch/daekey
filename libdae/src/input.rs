@@ -12,6 +12,15 @@ pub enum KeyState {
     Repeated = 2,
 }
 
+//TODO: Introduce this enum in keybind
+/// Filter depending on selected modifiers.
+#[derive(Serialize, Deserialize, Debug, Eq, Hash, PartialEq, Copy, Clone)]
+pub enum ModifierFilter {
+    /// Filter through only if the modifiers match exactly.
+    Exact(Modifiers),
+    /// Filter through if at least these modifiers match.
+    AtLeast(Modifiers),
+}
 #[derive(Serialize, Deserialize, Debug, Eq, Hash, PartialEq, Copy, Clone)]
 /// Represents the key being activated alongside its modifiers (like Shift, Ctrl, etc...).
 pub struct Keybind {

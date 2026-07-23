@@ -1,5 +1,5 @@
 pub use evdev::KeyCode;
-pub use evdev::RelativeAxisCode;
+pub use evdev::{RelativeAxisCode, AbsoluteAxisCode};
 pub mod binder;
 pub mod input;
 pub mod api;
@@ -7,6 +7,8 @@ pub mod display_monitor;
 #[doc(hidden)]
 pub mod message;
 pub mod modifiers;
+pub use message::AppliedModifiers;
+// TODO: launch throuhg binary so that i can run the binary in the background.
 
 
 // instead of just hoding the binding in a hashmap, hold them in the trie.

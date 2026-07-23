@@ -139,7 +139,6 @@ fn input_loop(
                 bindings = postcard::from_io((&input_socket, &mut [0; 256])).unwrap().0;
                 continue;
             }
-            // TODO: convert kbd code to kbd branch and craete mouse branch.
             match &mut device_list[poll_fd_id] {
                 (dev, DevType::Kbd) => handle_kbd_events(
                     dev.fetch_events()?,

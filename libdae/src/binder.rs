@@ -29,6 +29,8 @@ pub struct Binder {
     bindings: HashMap<Keybind, Arc<dyn Fn(&Api) + Send + Sync>>,
     /// Keybind that toggles the other keybindings.
     toggle_bindings_key: Keybind,
+    /// Keybind that exit the program.
+    exit_key: Keybind,
     /// Whether the keybinds are paused or not.
     paused: bool,
 }
@@ -36,10 +38,12 @@ impl Binder {
     pub fn new(max_threads: u16) -> Self {
         let toggle_bindings_key =
             Keybind::new(KeyCode::KEY_PAUSE, KeyState::Pressed, modifiers::NONE);
+        let exit_key = Keybind::new(KeyCode::KEY_PAUSE, KeyState::Pressed, modifiers::RIGHT_CTRL);
         Binder {
             max_threads,
             bindings: HashMap::new(),
             toggle_bindings_key,
+            exit_key,
             paused: false,
         }
     }
@@ -47,17 +51,26 @@ impl Binder {
     ///
     /// # Arguments
     ///
-    /// * `key_event` - The key to bind it to.
+    /// * `key` - The key to bind it to.
     /// * `closure` - The closure that will run when the binding is activated.
-    pub fn create_binding<F>(&mut self, key_event: Keybind, closure: F)
+    pub fn create_binding<F>(&mut self, key: Keybind, closure: F)
     where
         F: Fn(&Api) + 'static + Send + Sync,
     {
-        self.bindings.insert(key_event, Arc::new(closure));
+        // TODO: Return Result instead of just eprinting with return.
+        if self.bindings.contains_key(&key) {
+            eprintln!("Cannot bind '{key:?}', keybind already exists.");
+            return;
+        }
+        self.bindings.insert(key, Arc::new(closure));
     }
     /// Defines a key to turn keybind activation on or off.
     pub fn set_toggle_bindings_key(&mut self, key: Keybind) {
         self.toggle_bindings_key = key;
+    }
+    /// Defines a key to exit the daemon.
+    pub fn set_exit_key(&mut self, key: Keybind) {
+        self.exit_key = key;
     }
 
     /// Start the app. It creates the necessary threads and processes.
@@ -129,6 +142,7 @@ impl Binder {
             keybinds.insert(binding.0.clone());
         }
         keybinds.insert(self.toggle_bindings_key);
+        keybinds.insert(self.exit_key);
         postcard::to_io(&keybinds, &input_socket).expect("postcard should be able to serialize");
 
         // Start thread pool.
@@ -157,15 +171,20 @@ impl Binder {
                 if key_event == self.toggle_bindings_key {
                     self.paused = !self.paused;
                     if self.paused {
-                        let mut keybind = HashSet::new();
-                        keybind.insert(self.toggle_bindings_key);
-                        postcard::to_io(&keybind, &input_socket)
+                        let mut keybinds = HashSet::new();
+                        keybinds.insert(self.toggle_bindings_key);
+                        keybinds.insert(self.exit_key);
+                        postcard::to_io(&keybinds, &input_socket)
                             .expect("postcard should be able to serialize");
                     } else {
                         postcard::to_io(&keybinds, &input_socket)
                             .expect("postcard should be able to serialize");
                     }
                     continue;
+                } else if key_event == self.exit_key {
+                    println!("Process terminated by user");
+                    // Exit more gracefully.
+                    std::process::exit(0);
                 }
                 eprintln!("key received from input is not bound: '{key_event:?}'");
                 break;

@@ -44,24 +44,26 @@ impl PrivHandler {
 
         // Listen for parent death.
         thread::spawn(|| {
-            let mut buf = [0; 256];
             let stdin = &std::io::stdin();
-            let mes_res: postcard::Result<(Vec<u8>, _)> = postcard::from_io((stdin, &mut buf));
-            match mes_res {
-                Ok(_) => println!("Received unexpected message from stdin"),
-                Err(e) => match e {
-                    postcard::Error::DeserializeUnexpectedEnd => {
-                        eprintln!("parent process died, killing current process: '{e}'");
-                        std::process::exit(1);
-                    }
-                    _ => {
-                        eprintln!(
-                            "unexpected error, could not read from socket, killing current process: '{e}'"
-                        );
-                        std::process::exit(1);
-                    }
-                },
-            };
+            loop {
+                let mut buf = [0; 256];
+                let mes_res: postcard::Result<([u8;1], _)> = postcard::from_io((stdin, &mut buf));
+                match &mes_res {
+                    Ok(_) => eprintln!("Received unexpected byte from stdin"),
+                    Err(e) => match e {
+                        postcard::Error::DeserializeUnexpectedEnd => {
+                            eprintln!("parent process died, killing current process: '{e}'");
+                            std::process::exit(1);
+                        }
+                        _ => {
+                            eprintln!(
+                                "unexpected error, could not read from socket, killing current process: '{e}'"
+                            );
+                            std::process::exit(1);
+                        }
+                    },
+                };
+            }
         });
 
         // If stdin dies, it means the parent died, so just exit.
