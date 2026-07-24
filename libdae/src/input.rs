@@ -3,7 +3,7 @@ use evdev::{AbsoluteAxisCode, KeyCode, RelativeAxisCode};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
-use crate::modifiers::Modifiers;
+use crate::{Pixel, modifiers::Modifiers};
 #[derive(Serialize, Deserialize, Debug, Eq, Hash, PartialEq, Copy, Clone)]
 #[repr(i32)]
 pub enum KeyState {
@@ -12,15 +12,6 @@ pub enum KeyState {
     Repeated = 2,
 }
 
-//TODO: Introduce this enum in keybind
-/// Filter depending on selected modifiers.
-#[derive(Serialize, Deserialize, Debug, Eq, Hash, PartialEq, Copy, Clone)]
-pub enum ModifierFilter {
-    /// Filter through only if the modifiers match exactly.
-    Exact(Modifiers),
-    /// Filter through if at least these modifiers match.
-    AtLeast(Modifiers),
-}
 #[derive(Serialize, Deserialize, Debug, Eq, Hash, PartialEq, Copy, Clone)]
 /// Represents the key being activated alongside its modifiers (like Shift, Ctrl, etc...).
 pub struct Keybind {
@@ -50,14 +41,13 @@ impl KeyAction {
     }
 }
 
-// TODO: Use Pixel instead of i32? move type definition here.
 /// Defines a simple relative mouse action.
 #[derive(Serialize, Deserialize, Debug, Eq, Hash, PartialEq, Copy, Clone)]
 pub struct MouseRelAction {
     /// Along which axis to move.
     pub axis: RelativeAxisCode,
     /// How many pixels to shift.
-    pub value: i32,
+    pub value: Pixel,
 }
 
 impl MouseRelAction {

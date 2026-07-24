@@ -11,7 +11,8 @@ use smithay_client_toolkit::{
 };
 use wayland_client::{Connection, QueueHandle, globals::registry_queue_init, protocol::wl_output};
 
-pub type Pixel = i32;
+use crate::Pixel;
+
 /// (x,y) coordinates
 pub type Point = [Pixel; 2];
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -93,7 +94,7 @@ pub fn get_monitor_info() -> Result<ScreenSpace, Box<dyn Error>> {
     let conn = Connection::connect_to_env()?;
 
     // Now create an event queue and a handle to the queue so we can create objects.
-    let (globals, mut event_queue) = registry_queue_init(&conn).unwrap();
+    let (globals, mut event_queue) = registry_queue_init(&conn)?;
     let qh = event_queue.handle();
 
     // Initialize the registry handling so other parts of Smithay's client toolkit may bind
@@ -116,6 +117,7 @@ pub fn get_monitor_info() -> Result<ScreenSpace, Box<dyn Error>> {
     //
     // After the globals are bound, we need to dispatch again so that events may be sent to the newly
     // created objects.
+    event_queue.roundtrip(&mut list_outputs)?;
     event_queue.roundtrip(&mut list_outputs)?;
 
     // Now our outputs have been initialized with data, we may access what outputs exist and information about

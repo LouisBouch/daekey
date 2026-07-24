@@ -1,5 +1,3 @@
-pub use evdev::KeyCode;
-pub use evdev::{RelativeAxisCode, AbsoluteAxisCode};
 pub mod binder;
 pub mod input;
 pub mod api;
@@ -7,7 +5,11 @@ pub mod display_monitor;
 #[doc(hidden)]
 pub mod message;
 pub mod modifiers;
+
+pub use evdev::KeyCode;
+pub use evdev::{RelativeAxisCode, AbsoluteAxisCode};
 pub use message::AppliedModifiers;
+pub type Pixel = i32;
 // TODO: launch throuhg binary so that i can run the binary in the background.
 
 
@@ -35,3 +37,14 @@ pub use message::AppliedModifiers;
 // This special struct can easily be clone to allow multiple channels.
 //
 // Make user file a simple .rs file to import?
+
+// /// Filter conditions.
+// #[derive(Serialize, Deserialize, Debug, Eq, Hash, PartialEq, Copy, Clone)]
+// pub enum Filter {
+//     /// Filter through only if it matches exactly.
+//     Exact,
+//     /// Filter through only if it has at least the required items.
+//     AtLeast,
+//     /// Filter through only if it has at most these items.
+//     AtMost,
+// }

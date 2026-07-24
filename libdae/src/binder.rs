@@ -53,16 +53,19 @@ impl Binder {
     ///
     /// * `key` - The key to bind it to.
     /// * `closure` - The closure that will run when the binding is activated.
-    pub fn create_binding<F>(&mut self, key: Keybind, closure: F)
+    ///
+    /// # Return
+    ///
+    /// [`None`] if the binding did not already exist or the old closure [`Arc<dyn Fn(&Api) + Send + Sync>`] if the binding is overwritting the old binding.
+    pub fn create_binding<F>(
+        &mut self,
+        key: Keybind,
+        closure: F,
+    ) -> Option<Arc<dyn Fn(&Api) + Send + Sync>>
     where
         F: Fn(&Api) + 'static + Send + Sync,
     {
-        // TODO: Return Result instead of just eprinting with return.
-        if self.bindings.contains_key(&key) {
-            eprintln!("Cannot bind '{key:?}', keybind already exists.");
-            return;
-        }
-        self.bindings.insert(key, Arc::new(closure));
+        self.bindings.insert(key, Arc::new(closure))
     }
     /// Defines a key to turn keybind activation on or off.
     pub fn set_toggle_bindings_key(&mut self, key: Keybind) {
