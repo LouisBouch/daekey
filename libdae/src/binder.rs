@@ -122,7 +122,7 @@ impl Binder {
         // Notify the privileged process of the context.
         let context = SetupContext {
             nb_threads: self.max_threads,
-            screen_space: display_monitor::get_monitor_info()
+            screen_space: display_monitor::ScreenSpace::try_from_system()
                 .expect("displays should have fetchable information"),
         };
         // TODO: Don't panic when no size, just remove absolute cursor feature.

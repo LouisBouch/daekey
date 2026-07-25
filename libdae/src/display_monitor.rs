@@ -60,6 +60,64 @@ impl ScreenSpace {
             monitors: sort_monitors,
         }
     }
+
+    /// Obtain screen space information from the system.
+    pub fn try_from_system() -> Result<ScreenSpace, Box<dyn Error>> {
+        // Try to connect to the Wayland server.
+        let conn = Connection::connect_to_env()?;
+
+        // Now create an event queue and a handle to the queue so we can create objects.
+        let (globals, mut event_queue) = registry_queue_init(&conn)?;
+        let qh = event_queue.handle();
+
+        // Initialize the registry handling so other parts of Smithay's client toolkit may bind
+        // globals.
+        let registry_state = RegistryState::new(&globals);
+
+        // Initialize the delegate we will use for outputs.
+        let output_delegate = OutputState::new(&globals, &qh);
+
+        // Set up application state.
+        //
+        // This is where you will store your delegates and any data you wish to access/mutate while the
+        // application is running.
+        let mut list_outputs = ListOutputs {
+            registry_state,
+            output_state: output_delegate,
+        };
+
+        // `OutputState::new()` binds the output globals found in `registry_queue_init()`.
+        //
+        // After the globals are bound, we need to dispatch again so that events may be sent to the newly
+        // created objects.
+        event_queue.roundtrip(&mut list_outputs)?;
+        event_queue.roundtrip(&mut list_outputs)?;
+
+        // Now our outputs have been initialized with data, we may access what outputs exist and information about
+        // said outputs using the output delegate.
+        let mut monitors = Vec::new();
+        for output in list_outputs.output_state.outputs() {
+            let info = &list_outputs
+                .output_state
+                .info(&output)
+                .ok_or_else(|| "output has no info".to_owned())?;
+            let location = match info.logical_position {
+                Some(l) => l,
+                None => return Err(Box::from(format!("monitor {info:?} has no logical position"))),
+            };
+
+            let (width, height) = match info.logical_size {
+                Some(v) => v,
+                None => return Err(Box::from(format!("monitor {info:?} has no logical size"))),
+            };
+            monitors.push(MonitorInfo {
+                width,
+                height,
+                origin: [location.0, location.1],
+            });
+        }
+        Ok(ScreenSpace::new(&monitors))
+    }
     pub fn range(&self) -> (Point, Point) {
         self.range
     }
@@ -87,61 +145,6 @@ impl MonitorInfo {
     pub fn origin(&self) -> Point {
         self.origin
     }
-}
-
-pub fn get_monitor_info() -> Result<ScreenSpace, Box<dyn Error>> {
-    // Try to connect to the Wayland server.
-    let conn = Connection::connect_to_env()?;
-
-    // Now create an event queue and a handle to the queue so we can create objects.
-    let (globals, mut event_queue) = registry_queue_init(&conn)?;
-    let qh = event_queue.handle();
-
-    // Initialize the registry handling so other parts of Smithay's client toolkit may bind
-    // globals.
-    let registry_state = RegistryState::new(&globals);
-
-    // Initialize the delegate we will use for outputs.
-    let output_delegate = OutputState::new(&globals, &qh);
-
-    // Set up application state.
-    //
-    // This is where you will store your delegates and any data you wish to access/mutate while the
-    // application is running.
-    let mut list_outputs = ListOutputs {
-        registry_state,
-        output_state: output_delegate,
-    };
-
-    // `OutputState::new()` binds the output globals found in `registry_queue_init()`.
-    //
-    // After the globals are bound, we need to dispatch again so that events may be sent to the newly
-    // created objects.
-    event_queue.roundtrip(&mut list_outputs)?;
-    event_queue.roundtrip(&mut list_outputs)?;
-
-    // Now our outputs have been initialized with data, we may access what outputs exist and information about
-    // said outputs using the output delegate.
-    let mut monitors = Vec::new();
-    for output in list_outputs.output_state.outputs() {
-        let info = &list_outputs
-            .output_state
-            .info(&output)
-            .ok_or_else(|| "output has no info".to_owned())?;
-        let location = info.location;
-
-        let (width, height) = match info.logical_size {
-            Some(v) => v,
-            None => return Err(Box::from(format!("monitor {info:?} has no logical size"))),
-        };
-        monitors.push(MonitorInfo {
-            width,
-            height,
-            origin: [location.0, location.1],
-        });
-    }
-
-    Ok(ScreenSpace::new(&monitors))
 }
 
 /// Application data.

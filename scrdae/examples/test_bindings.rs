@@ -63,7 +63,7 @@ fn main() {
             move |api| {
                 api.send_mouse_actions(vec![
                     MouseAction::Abs(MouseAbsAction::new(AbsoluteAxisCode::ABS_X, 100)),
-                    MouseAction::Abs(MouseAbsAction::new(AbsoluteAxisCode::ABS_Y, 100)),
+                    MouseAction::Abs(MouseAbsAction::new(AbsoluteAxisCode::ABS_Y, 768-100)),
                 ]);
             }
         },
