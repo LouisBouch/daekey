@@ -4,7 +4,7 @@ use std::error::Error;
 
 use serde::{Deserialize, Serialize};
 use smithay_client_toolkit::{
-    delegate_output, delegate_registry,
+    delegate_registry,
     output::{OutputHandler, OutputState},
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
@@ -26,7 +26,7 @@ pub struct ScreenSpace {
 }
 impl ScreenSpace {
     pub fn new(monitors: &[MonitorInfo]) -> Self {
-        let mut range = ([0, 0], [0, 0]);
+        let mut range: (Point, Point) = ([0, 0], [0, 0]);
         let mut sort_monitors: Vec<MonitorInfo> = Vec::new();
         // Ensure order of monitors is top to bottom followed by left to right.
         for monitor in monitors {
@@ -55,6 +55,9 @@ impl ScreenSpace {
                 sort_monitors.push(monitor.clone());
             }
         }
+        // If the screen has width W, then the last pixel is at position W - 1, this is why 1 is subtracted.
+        range.1[0] -= 1;
+        range.1[1] -= 1;
         ScreenSpace {
             range,
             monitors: sort_monitors,
@@ -103,7 +106,11 @@ impl ScreenSpace {
                 .ok_or_else(|| "output has no info".to_owned())?;
             let location = match info.logical_position {
                 Some(l) => l,
-                None => return Err(Box::from(format!("monitor {info:?} has no logical position"))),
+                None => {
+                    return Err(Box::from(format!(
+                        "monitor {info:?} has no logical position"
+                    )));
+                }
             };
 
             let (width, height) = match info.logical_size {
@@ -195,14 +202,11 @@ impl OutputHandler for ListOutputs {
     }
 }
 
-// Now we need to say we are delegating the responsibility of output related events for our application data
-// type to the requisite delegate.
-delegate_output!(ListOutputs);
-
 // In order for our delegate to know of the existence of globals, we need to implement registry
 // handling for the program. This trait will forward events to the RegistryHandler trait
 // implementations.
 delegate_registry!(ListOutputs);
+smithay_client_toolkit::delegate_dispatch2!(ListOutputs);
 
 // In order for delegate_registry to work, our application data type needs to provide a way for the
 // implementation to access the registry state.
@@ -220,3 +224,4 @@ impl ProvidesRegistryState for ListOutputs {
         OutputState,
     }
 }
+

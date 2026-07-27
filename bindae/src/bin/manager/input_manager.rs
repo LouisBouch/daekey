@@ -118,7 +118,7 @@ fn input_loop(
             PollFlags::POLLIN,
         ))
     };
-    let mut cur_modifiers_per_dev: Vec<modifiers::Modifiers> = vec![modifiers::NONE; 2];
+    let mut cur_modifiers_per_dev: Vec<modifiers::Modifiers> = vec![modifiers::NONE; device_list.len()];
 
     let mut key_actions: Vec<KeyAction> = Vec::with_capacity(4);
     let mut mouse_actions: Vec<MouseAction> = Vec::with_capacity(4);
