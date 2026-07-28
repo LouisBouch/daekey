@@ -13,12 +13,13 @@ use std::{
 use evdev::KeyCode;
 use nix::sys::socket::{ControlMessage, MsgFlags, sendmsg};
 use serde::{Deserialize, Serialize};
+use wayland_client::protocol::wl_output::WlOutput;
 
 use crate::{
     api::Api,
-    display_monitor::{self, ScreenSpace},
     input::{KeyState, Keybind},
     modifiers,
+    wayland_int::display_output::{self, MonitorInfo, Screen, ScreenSpace},
 };
 
 /// Holds everything necessary for the app to work.
@@ -119,18 +120,28 @@ impl Binder {
             .spawn()
             .expect("command should not error out");
 
+        // Get info about the screen outputs.
+        let ex = "displays should have fetchable information";
+        let list_outputs = display_output::get_list_outputs().expect(ex);
+        let outputs: Vec<Screen> = list_outputs.screens().expect(ex);
+        // let screen_space = display_output::ScreenSpace::try_from_outputs(&list_outputs).expect(ex);
+        let screen_space = display_output::ScreenSpace::from_monitors(
+            &outputs
+                .iter()
+                .map(|v| v.monitor_info().clone())
+                .collect::<Vec<MonitorInfo>>(),
+        );
         // Notify the privileged process of the context.
         let context = SetupContext {
             nb_threads: self.max_threads,
-            screen_space: display_monitor::ScreenSpace::try_from_system()
-                .expect("displays should have fetchable information"),
+            screen_space: screen_space.clone(),
         };
         // TODO: Don't panic when no size, just remove absolute cursor feature.
         postcard::to_io(&context, &socket_core_end).expect("postcard should be able to serialize");
         // Wait for context acknowledgement from the privileged process, otherwise the ancillary data
         // from socket creation will get tacked on to the last message sent.
         let _ack: bool = postcard::from_io((&socket_core_end, &mut [0; 256]))
-            .expect("priv process sohuld ack when it received context")
+            .expect("priv process should have acked when it received context")
             .0;
 
         // Create sockets and send them over to the child.
@@ -186,7 +197,7 @@ impl Binder {
                     continue;
                 } else if key_event == self.exit_key {
                     println!("Process terminated by user");
-                    // Exit more gracefully.
+                    // TODO: Exit more gracefully.
                     std::process::exit(0);
                 }
                 eprintln!("key received from input is not bound: '{key_event:?}'");
@@ -202,7 +213,7 @@ impl Binder {
                     let b = Api::new(s, shared_closure_sockets.clone());
                     pool.spawn(move || closure(&b));
                 }
-                None => println!("Not enough sockets, skipping key..."),
+                None => println!("Not enough sockets/threads, skipping key..."),
             }
         }
         child.wait().unwrap();

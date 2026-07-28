@@ -30,7 +30,6 @@ impl PrivHandler {
 
         let (input_socket, worker_sockets) = Self::get_sockets(ctx.nb_threads()).unwrap();
 
-        // Use read data.
         let uinput_share = uinput_manager::launch_uinput_listener(ctx.screen_space())
             .expect("uinput manager should launch successfully");
         let input_share = input_manager::launch_input_listener(
@@ -47,7 +46,7 @@ impl PrivHandler {
             let stdin = &std::io::stdin();
             loop {
                 let mut buf = [0; 256];
-                let mes_res: postcard::Result<([u8;1], _)> = postcard::from_io((stdin, &mut buf));
+                let mes_res: postcard::Result<([u8; 1], _)> = postcard::from_io((stdin, &mut buf));
                 match &mes_res {
                     Ok(_) => eprintln!("Received unexpected byte from stdin"),
                     Err(e) => match e {

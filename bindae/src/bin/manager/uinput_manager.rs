@@ -6,8 +6,9 @@ use evdev::{
     AbsInfo, AbsoluteAxisCode, AttributeSet, KeyCode, PropType, RelativeAxisCode, UinputAbsSetup,
     uinput::VirtualDevice,
 };
+
 use libdae::{
-    display_monitor::ScreenSpace,
+    wayland_int::display_output::ScreenSpace,
     input::KeyState,
     message,
     modifiers::{self, Modifiers},
