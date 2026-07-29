@@ -5,10 +5,7 @@ use std::{
 };
 
 use libdae::{
-    AbsoluteAxisCode, AppliedModifiers, KeyCode, RelativeAxisCode,
-    binder::Binder,
-    input::{KeyAction, KeyState, Keybind, MouseAbsAction, MouseAction, MouseRelAction},
-    modifiers::{self},
+    AbsoluteAxisCode, AppliedModifiers, KeyCode, RelativeAxisCode, app, binder::Binder, input::{KeyAction, KeyState, Keybind, MouseAbsAction, MouseAction, MouseRelAction}, modifiers::{self}
 };
 
 fn main() {
@@ -81,5 +78,5 @@ fn main() {
         KeyState::Pressed,
         modifiers::RIGHT_SHIFT,
     ));
-    binder.launch();
+    app::launch(binder);
 }

@@ -1,4 +1,4 @@
-//! Holds required methods and structs to detect and define the monitors in use.
+//!Holds required methods and structs to detect and define the monitors in use and interfaces with the display outputs.
 
 use std::error::Error;
 
