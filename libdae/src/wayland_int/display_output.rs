@@ -48,64 +48,56 @@ pub(crate) fn get_list_outputs() -> Result<ListOutputs, Box<dyn Error>> {
     Ok(list_outputs)
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+/// Positional information for a screen.
+pub struct ScreenInfo {
+    /// Width of the screen in pixels.
+    width: Pixel,
+    /// Height of the screen in pixels.
+    height: Pixel,
+    /// Position of the origin relative ot the other monitors.
+    origin: Point,
+}
+impl ScreenInfo {
+    pub fn width(&self) -> Pixel {
+        self.width
+    }
+    pub fn height(&self) -> Pixel {
+        self.height
+    }
+    pub fn origin(&self) -> Point {
+        self.origin
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Screen {
     /// The output that represents it.
     output: WlOutput,
-    /// Info about the monitor.
-    monitor_info: MonitorInfo,
+    /// Info about the monitor/screen.
+    screen_info: ScreenInfo,
 }
 impl Screen {
     pub fn output(&self) -> &WlOutput {
         &self.output
     }
-    pub fn monitor_info(&self) -> &MonitorInfo {
-        &self.monitor_info
+    pub fn screen_info(&self) -> &ScreenInfo {
+        &self.screen_info
     }
 }
 /// (x,y) coordinates
 pub type Point = [Pixel; 2];
 #[derive(Serialize, Deserialize, Debug, Clone)]
-/// Information about a monitor layout.
+/// Information about a monitor/screen layout.
 pub struct ScreenSpace {
     /// The raw pixel range of the monitor layout.
     /// (top_left_corner, bottom_right_corner)
     range: (Point, Point),
     /// List of monitors sorted top to bottom, left to right.
-    monitors: Vec<MonitorInfo>,
+    monitors: Vec<ScreenInfo>,
 }
 impl ScreenSpace {
-    pub(crate) fn try_from_outputs(list_outputs: &ListOutputs) -> Result<Self, Box<dyn Error>> {
-        // Now our outputs have been initialized with data, we may access what outputs exist and information about
-        // said outputs using the output delegate.
-        let mut monitors = Vec::new();
-        for output in list_outputs.output_state.outputs() {
-            let info = &list_outputs
-                .output_state
-                .info(&output)
-                .ok_or_else(|| "output has no info".to_owned())?;
-            let location = match info.logical_position {
-                Some(l) => l,
-                None => {
-                    return Err(Box::from(format!(
-                        "monitor {info:?} has no logical position"
-                    )));
-                }
-            };
-
-            let (width, height) = match info.logical_size {
-                Some(v) => v,
-                None => return Err(Box::from(format!("monitor {info:?} has no logical size"))),
-            };
-            monitors.push(MonitorInfo {
-                width,
-                height,
-                origin: [location.0, location.1],
-            });
-        }
-        Ok(ScreenSpace::from_monitors(&monitors))
-    }
-    pub fn from_monitors(monitors: &[MonitorInfo]) -> Self {
+    pub fn from_monitors(monitors: &[ScreenInfo]) -> Self {
         let mut range: (Point, Point) = ([0, 0], [0, 0]);
         for monitor in monitors {
             let o = monitor.origin;
@@ -118,7 +110,7 @@ impl ScreenSpace {
         range.1[0] -= 1;
         range.1[1] -= 1;
 
-        let mut sort_monitors: Vec<MonitorInfo> = monitors.to_vec();
+        let mut sort_monitors: Vec<ScreenInfo> = monitors.to_vec();
         // Ensure order of monitors is top to bottom followed by left to right.
         sort_monitors.sort_by(|a, b| {
             let ao = a.origin();
@@ -134,32 +126,10 @@ impl ScreenSpace {
     pub fn range(&self) -> (Point, Point) {
         self.range
     }
-    pub fn monitors(&self) -> &[MonitorInfo] {
+    pub fn monitors(&self) -> &[ScreenInfo] {
         &self.monitors
     }
 }
-#[derive(Serialize, Deserialize, Debug, Clone)]
-/// Positional information for a monitor.
-pub struct MonitorInfo {
-    /// Width of the monitor in pixels.
-    width: Pixel,
-    /// Height of the monitor in pixels.
-    height: Pixel,
-    /// Position of the origin relative ot the other monitors.
-    origin: Point,
-}
-impl MonitorInfo {
-    pub fn width(&self) -> Pixel {
-        self.width
-    }
-    pub fn height(&self) -> Pixel {
-        self.height
-    }
-    pub fn origin(&self) -> Point {
-        self.origin
-    }
-}
-
 /// Application data.
 ///
 /// This type is where the delegates for some parts of the protocol and any application specific data will
@@ -169,8 +139,8 @@ pub(crate) struct ListOutputs {
     output_state: OutputState,
 }
 impl ListOutputs {
-    // Returns a list of outputs sorted by their y position followed by their x position.
-    pub fn screens(&self) -> Result<Vec<Screen>, Box<dyn Error>> {
+    // Returns a list of screens sorted by their y position followed by their x position.
+    pub fn get_screens(&self) -> Result<Vec<Screen>, Box<dyn Error>> {
         let mut screens = Vec::new();
         for output in self.output_state.outputs() {
             let info = &self
@@ -190,22 +160,21 @@ impl ListOutputs {
                 Some(v) => v,
                 None => return Err(Box::from(format!("monitor {info:?} has no logical size"))),
             };
-            let monitor_info = MonitorInfo {
+            let monitor_info = ScreenInfo {
                 width,
                 height,
                 origin: [location.0, location.1],
             };
             screens.push(Screen {
-                monitor_info,
+                screen_info: monitor_info,
                 output: output.clone(),
             });
         }
         let mut increasing: Vec<usize> = (0..screens.len()).collect();
         increasing.sort_by_key(|&i| {
-            let o = screens[i].monitor_info.origin;
+            let o = screens[i].screen_info.origin;
             (o[1], o[0])
         });
-        let outputs: Vec<WlOutput> = self.output_state.outputs().collect();
         Ok(increasing.iter().map(|&i| screens[i].clone()).collect())
     }
 }

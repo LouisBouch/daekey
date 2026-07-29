@@ -13,13 +13,12 @@ use std::{
 use evdev::KeyCode;
 use nix::sys::socket::{ControlMessage, MsgFlags, sendmsg};
 use serde::{Deserialize, Serialize};
-use wayland_client::protocol::wl_output::WlOutput;
 
 use crate::{
     api::Api,
     input::{KeyState, Keybind},
     modifiers,
-    wayland_int::display_output::{self, MonitorInfo, Screen, ScreenSpace},
+    wayland_int::display_output::{self, ScreenInfo, Screen, ScreenSpace},
 };
 
 /// Holds everything necessary for the app to work.
@@ -123,13 +122,13 @@ impl Binder {
         // Get info about the screen outputs.
         let ex = "displays should have fetchable information";
         let list_outputs = display_output::get_list_outputs().expect(ex);
-        let outputs: Vec<Screen> = list_outputs.screens().expect(ex);
-        // let screen_space = display_output::ScreenSpace::try_from_outputs(&list_outputs).expect(ex);
+        // TODO: Use screens to create shell layers.
+        let screens: Vec<Screen> = list_outputs.get_screens().expect(ex);
         let screen_space = display_output::ScreenSpace::from_monitors(
-            &outputs
+            &screens
                 .iter()
-                .map(|v| v.monitor_info().clone())
-                .collect::<Vec<MonitorInfo>>(),
+                .map(|v| v.screen_info().clone())
+                .collect::<Vec<ScreenInfo>>(),
         );
         // Notify the privileged process of the context.
         let context = SetupContext {
