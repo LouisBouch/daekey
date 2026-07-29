@@ -1,7 +1,6 @@
-//! Holds api for the user to request command from the privileged process.
+//! Holds api logic for the user to request commands from the privileged process.
 use std::{
-    os::unix::net::UnixStream,
-    sync::{Arc, Mutex},
+    ops::Deref, os::unix::net::UnixStream, sync::{Arc, Mutex}
 };
 
 use evdev::KeyCode;
@@ -14,25 +13,12 @@ use crate::{
 /// Acts as an api for the user to request command from the privileged process.
 pub struct Api {
     socket_to_worker: Option<UnixStream>,
-    return_pile: Arc<Mutex<Vec<UnixStream>>>,
-}
-impl Drop for Api {
-    fn drop(&mut self) {
-        let Some(socket) = self.socket_to_worker.take() else {
-            panic!("the bridge should have a valid socket");
-        };
-        self.return_pile
-            .lock()
-            .expect("lock should be sucessful")
-            .push(socket);
-    }
 }
 impl Api {
     // crossbeam channel to send message to a thread that will them pipe to the privileged process.
-    pub fn new(socket_to_worker: UnixStream, return_pile: Arc<Mutex<Vec<UnixStream>>>) -> Self {
+    pub fn new(socket_to_worker: UnixStream) -> Self {
         Api {
             socket_to_worker: Some(socket_to_worker),
-            return_pile,
         }
     }
     /// Send a list of key press/release to the compositor through the privileged process.
@@ -63,5 +49,37 @@ impl Api {
             .expect("the bridge should have a valid socket");
         postcard::to_io(&message::MsgToWorker::UInputRequest(mes), socket)
             .expect("socket should successfully send message");
+    }
+}
+/// Holds an Api and knows how to return it.
+pub struct ApiHolder {
+    api: Option<Api>,
+    return_pile: Arc<Mutex<Vec<Api>>>,
+}
+impl ApiHolder {
+    // Wraps an [`Api`] and puts it back on the pile when it is done.
+    pub fn new(api: Api, return_pile: Arc<Mutex<Vec<Api>>>) -> Self {
+        ApiHolder {
+            api: Some(api),
+            return_pile,
+        }
+    }
+}
+impl Deref for ApiHolder {
+    type Target = Api;
+
+    fn deref(&self) -> &Self::Target {
+        self.api.as_ref().expect("the api should not be removed until the 'ApiHolder is dropped")
+    }
+}
+impl Drop for ApiHolder {
+    fn drop(&mut self) {
+        let Some(api) = self.api.take() else {
+            panic!("the holder should have a valid api");
+        };
+        self.return_pile
+            .lock()
+            .expect("lock should be sucessful")
+            .push(api);
     }
 }

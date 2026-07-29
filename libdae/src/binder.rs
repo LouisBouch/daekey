@@ -15,10 +15,10 @@ use nix::sys::socket::{ControlMessage, MsgFlags, sendmsg};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    api::Api,
+    api::{Api, ApiHolder},
     input::{KeyState, Keybind},
     modifiers,
-    wayland_int::display_output::{self, ScreenInfo, Screen, ScreenSpace},
+    wayland_int::display_output::{self, Screen, ScreenInfo, ScreenSpace},
 };
 
 /// Holds everything necessary for the app to work.
@@ -147,7 +147,13 @@ impl Binder {
         let (input_socket, closure_sockets) =
             Self::share_sockets(&socket_core_end, self.max_threads)
                 .expect("sockets should be created successfully");
-        let shared_closure_sockets = Arc::new(Mutex::new(closure_sockets));
+        let api_instances: Arc<Mutex<Vec<Api>>> = Arc::new(Mutex::new(Vec::new()));
+        for socket in closure_sockets {
+            api_instances
+                .lock()
+                .expect("mutex should lock")
+                .push(Api::new(socket));
+        }
 
         // Send the bindings over.
         let mut keybinds = HashSet::new();
@@ -202,15 +208,11 @@ impl Binder {
                 eprintln!("key received from input is not bound: '{key_event:?}'");
                 break;
             };
-
-            let socket_r = {
-                let mut g = shared_closure_sockets.lock().expect("should yield lock");
-                g.pop()
-            };
-            match socket_r {
-                Some(s) => {
-                    let b = Api::new(s, shared_closure_sockets.clone());
-                    pool.spawn(move || closure(&b));
+            // Spawn closure with an [`ApiHolder`].
+            match api_instances.lock().expect("should yield lock").pop() {
+                Some(api) => {
+                    let api_holder = ApiHolder::new(api, api_instances.clone());
+                    pool.spawn(move || closure(&api_holder));
                 }
                 None => println!("Not enough sockets/threads, skipping key..."),
             }
