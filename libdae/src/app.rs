@@ -79,7 +79,7 @@ pub fn launch(mut binder: Binder) {
     let ex = "displays should have fetchable information";
     // TODO: Don't panic when no size, just remove absolute cursor feature.
     let list_outputs = display_output::get_list_outputs().expect(ex);
-    // TODO: Use screens to create shell layers.
+    // TODO: Use screens to create shell layers and get back mouse position.
     let screens: Vec<Screen> = list_outputs.get_screens().expect(ex);
     let screen_space = display_output::ScreenSpace::from_monitors(
         &screens
