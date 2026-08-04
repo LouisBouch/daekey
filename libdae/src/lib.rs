@@ -19,6 +19,8 @@ pub type Pixel = i32;
 // TODO: For "get mouse position" and "get outputs", implement code form test_wlroots. Start a
 // thread that listens for requests and return an object that acts as an api. the api will hold the
 // channel to talk to the wayland thread and will communicate back with one shot channels.
+// TODO: Create macro maker. Fetches initiale absolute cursor position on a key press and then
+// record everything that is done.
 
 
 // instead of just hoding the binding in a hashmap, hold them in the trie.
