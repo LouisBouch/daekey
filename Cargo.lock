@@ -314,6 +314,7 @@ dependencies = [
  "serde",
  "smithay-client-toolkit",
  "wayland-client",
+ "wayland-protocols-wlr",
 ]
 
 [[package]]
