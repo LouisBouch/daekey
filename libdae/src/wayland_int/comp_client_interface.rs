@@ -1,9 +1,9 @@
 //! List of structs and methods to allow the user to interface with the wayland compositor.
 use std::error::Error;
 use std::fmt::Display;
+use std::num::NonZeroU32;
 use std::thread;
 use std::time::Duration;
-use std::{convert::TryInto, num::NonZeroU32};
 
 use crossbeam_channel::Sender;
 use smithay_client_toolkit::reexports::calloop::{self, EventLoop};
@@ -20,174 +20,24 @@ use smithay_client_toolkit::{
     },
     shell::{
         WaylandSurface,
-        wlr_layer::{
-            Anchor, Layer, LayerShell, LayerShellHandler, LayerSurface, LayerSurfaceConfigure,
-        },
+        wlr_layer::{LayerShell, LayerShellHandler, LayerSurface, LayerSurfaceConfigure},
     },
-    shm::{Shm, ShmHandler, slot::SlotPool},
+    shm::{Shm, ShmHandler},
 };
 use wayland_client::protocol::wl_callback::WlCallback;
 use wayland_client::protocol::wl_output::WlOutput;
-use wayland_client::protocol::wl_region::{self, WlRegion};
 use wayland_client::{
     Connection, QueueHandle,
     globals::registry_queue_init,
-    protocol::{wl_output, wl_pointer, wl_seat, wl_shm, wl_surface},
+    protocol::{wl_output, wl_pointer, wl_region, wl_seat, wl_surface},
 };
 use wayland_client::{Dispatch, EventQueue};
 use wayland_protocols_wlr::virtual_pointer::v1::client::zwlr_virtual_pointer_manager_v1::ZwlrVirtualPointerManagerV1;
 use wayland_protocols_wlr::virtual_pointer::v1::client::zwlr_virtual_pointer_v1::ZwlrVirtualPointerV1;
-#[derive(Debug)]
-struct ShellLayer {
-    screen_info: ScreenInfo,
-    pool: SlotPool,
-    layer_surface: LayerSurface,
-    empty_region: WlRegion,
-    first_configure: bool,
-}
-impl ShellLayer {
-    fn from_output(
-        output: &WlOutput,
-        wl_ctx: &WlCtx,
-        qh: &QueueHandle<CompClient>,
-    ) -> Result<Self, Box<dyn Error>> {
-        let info = wl_ctx
-            .output_state
-            .info(output)
-            .ok_or(Box::<dyn Error>::from(format!(
-                "No info available for output: {output:?}"
-            )))?;
-        match info.logical_position {
-            Some(v) => {
-                println!("name: {:?}", info.name);
-                dbg!(v);
-            }
-            None => {
-                dbg!("no vlaue");
-            }
-        };
-        let location = info
-            .logical_position
-            .ok_or_else(|| format!("monitor {info:?} has no logical position"))?;
 
-        let (width, height) = info
-            .logical_size
-            .ok_or_else(|| format!("monitor {info:?} has no logical size"))?;
-
-        let layer_surface = wl_ctx.layer_shell.create_layer_surface(
-            &qh,
-            wl_ctx.compositor_state.create_surface(&qh),
-            Layer::Overlay,
-            Some(format!(
-                "Monitor with origin: ({}, {}), width: {}px, height: {}px",
-                location.0, location.1, width, height,
-            )),
-            Some(&output),
-        );
-        let empty_region = wl_ctx
-            .compositor_state
-            .wl_compositor()
-            .create_region(qh, ());
-        layer_surface.set_size(width as u32, height as u32);
-        layer_surface.set_anchor(Anchor::TOP | Anchor::LEFT);
-        layer_surface.set_exclusive_zone(-1);
-        layer_surface
-            .wl_surface()
-            .set_input_region(Some(&empty_region));
-        layer_surface.commit();
-        let screen_info = ScreenInfo {
-            size: Size {
-                width: width as u32,
-                height: height as u32,
-            },
-            origin: Point {
-                x: location.0,
-                y: location.1,
-            },
-        };
-        let shell_layer = Self {
-            screen_info,
-            pool: SlotPool::new(512 * 512 * 4, &wl_ctx.shm).expect("Failed to create pool"),
-            layer_surface,
-            empty_region,
-            first_configure: true,
-        };
-        Ok(shell_layer)
-    }
-    fn draw_shell(&mut self) {
-        let width = self.screen_info.size.width;
-        let height = self.screen_info.size.height;
-        let stride = width as i32 * 4;
-
-        let (buffer, canvas) = self
-            .pool
-            .create_buffer(
-                width as i32,
-                height as i32,
-                stride,
-                wl_shm::Format::Argb8888,
-            )
-            .expect("buffer should be created successfully");
-
-        // Draw to the window:
-        {
-            canvas
-                .chunks_exact_mut(4)
-                .enumerate()
-                .for_each(|(_index, chunk)| {
-                    let a = 0x55;
-                    let r = 0x62 * a / 255;
-                    let g = 0x00 * a / 255;
-                    let b = 0xFF * a / 255;
-                    let color: u32 = (a << 24) + (r << 16) + (g << 8) + b;
-
-                    let array: &mut [u8; 4] = chunk.try_into().unwrap();
-                    *array = color.to_le_bytes();
-                });
-        }
-
-        // Attach and commit.
-        buffer
-            .attach_to(self.layer_surface.wl_surface())
-            .expect("buffer attach");
-
-        // First technique
-        // ------------- To detach:
-        // self.layer.wl_surface().attach(None, 0, 0);
-        // -------------- Reattach:
-        // buffer
-        //     .attach_to(self.layer.wl_surface())
-        //     .expect("buffer attach");
-
-        // Second technique (probably best one)
-        // ------------- To detach:
-        // self.layer
-        //     .wl_surface()
-        //     .set_input_region(Some(&self.empty_region));
-        // ----------------- To reattach:
-        // self.layer.wl_surface().set_input_region(None);
-        self.layer_surface.commit();
-    }
-}
-#[derive(Debug)]
-struct WlCtx {
-    registry_state: RegistryState,
-    connection: Connection,
-    seat_state: SeatState,
-    output_state: OutputState,
-    compositor_state: CompositorState,
-    layer_shell: LayerShell,
-    shm: Shm,
-    pointer: Option<wl_pointer::WlPointer>,
-    v_pointer: ZwlrVirtualPointerV1,
-}
-
-impl WlCtx {
-    fn trigger_mouse(&self) {
-        self.v_pointer.motion(0, 0.0, 0.0);
-        self.v_pointer.frame();
-    }
-}
+use crate::wayland_int::ScreenInfo;
+use crate::wayland_int::shell_layers::ShellLayer;
+use crate::wayland_int::wayland_context::WlCtx;
 #[derive(Debug)]
 enum Answer {
     AbsCursorPos(Point),
@@ -205,10 +55,10 @@ enum LayersState {
     Ready,
 }
 #[derive(Debug)]
-struct CompClient {
+pub(crate) struct CompClient {
     wayland_context: WlCtx,
 
-    // TODO: Move layer stuff in its own struct.
+    /// The list of shell layers that cover the screen outputs.
     shell_layers: Vec<ShellLayer>,
     /// State of the layers.
     layers_state: LayersState,
@@ -643,14 +493,6 @@ pub struct Size {
     pub width: u32,
     pub height: u32,
 }
-#[derive(Debug, Clone, Copy)]
-/// Positional information for a screen.
-pub struct ScreenInfo {
-    /// Size of the screen.
-    size: Size,
-    /// Position of the origin relative ot the other monitors.
-    origin: Point,
-}
 #[derive(Debug)]
 /// Requests for the compositor's client.
 enum CompClientReq {
@@ -680,7 +522,7 @@ impl Display for CursorFetchErr {
     }
 }
 #[derive(Clone)]
-struct CompClientInterface {
+pub(crate) struct CompClientInterface {
     sender: calloop::channel::Sender<CompClientReq>,
     // If termination sync is needed, return Arc<CompClientInterface> isntead and add the join
     // handle to the fields with a drop implementation to join on it. Also make both fields options

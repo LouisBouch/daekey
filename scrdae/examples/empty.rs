@@ -1,8 +1,5 @@
 use libdae::{
-    KeyCode,
-    binder::Binder,
-    input::{KeyState, Keybind},
-    modifiers::{self},
+    KeyCode, app, binder::Binder, input::{KeyState, Keybind}, modifiers::{self}
 };
 
 fn main() {
@@ -12,5 +9,5 @@ fn main() {
         KeyState::Pressed,
         modifiers::RIGHT_SHIFT,
     ));
-    binder.launch();
+    app::launch(binder);
 }

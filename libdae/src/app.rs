@@ -17,7 +17,7 @@ use crate::{
     api::{Api, ApiHolder},
     binder::Binder,
     input::Keybind,
-    wayland_int::display_output::{self, Screen, ScreenInfo, ScreenSpace},
+    wayland_int::{self, comp_client_interface, ScreenSpace},
 };
 
 
@@ -75,18 +75,13 @@ pub fn launch(mut binder: Binder) {
     let (socket_core_end, socket_priv_end) = std::os::unix::net::UnixStream::pair().unwrap();
     let mut child = start_priv_process(socket_priv_end);
 
-    // Get info about the screen outputs.
-    let ex = "displays should have fetchable information";
-    // TODO: Don't panic when no size, just remove absolute cursor feature.
-    let list_outputs = display_output::get_list_outputs().expect(ex);
-    // TODO: Use screens to create shell layers and get back mouse position.
-    let screens: Vec<Screen> = list_outputs.get_screens().expect(ex);
-    let screen_space = display_output::ScreenSpace::from_monitors(
-        &screens
-            .iter()
-            .map(|v| v.screen_info().clone())
-            .collect::<Vec<ScreenInfo>>(),
-    );
+
+    // TODO: Add the interface handle to the app as a field and implement api functionality to make
+    // use of the abscurpos request and displayinfo request.
+    let wld_intf = comp_client_interface::CompClientInterface::init();
+    let screen_info = wld_intf.req_screen_info();
+    let screen_space = wayland_int::ScreenSpace::from_monitors(&screen_info);
+
     // Notify the privileged process of the context.
     let context = SetupContext {
         nb_threads: binder.max_threads(),
