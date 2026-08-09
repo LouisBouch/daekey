@@ -8,7 +8,7 @@ use evdev::{
 };
 
 use libdae::{
-    wayland_int::display_output::ScreenSpace,
+    compositor_interface::ScreenSpace,
     input::KeyState,
     message,
     modifiers::{self, Modifiers},
@@ -56,8 +56,8 @@ pub fn launch_uinput_listener(screen_space: &ScreenSpace) -> std::io::Result<UIn
         .build()?;
 
     let range = screen_space.range();
-    let info_x = AbsInfo::new(0, range.0[0], range.1[0], 0, 0, 1);
-    let info_y = AbsInfo::new(0, range.0[1], range.1[1], 0, 0, 1);
+    let info_x = AbsInfo::new(0, range.top_left.x, range.bottom_right.x, 0, 0, 1);
+    let info_y = AbsInfo::new(0, range.top_left.y, range.bottom_right.y, 0, 0, 1);
     let mut mouse_key_set_abs: AttributeSet<KeyCode> = AttributeSet::new();
     mouse_key_set_abs.insert(KeyCode::new(0x140)); //tablet pen
     let mut abs_prop: AttributeSet<PropType> = AttributeSet::new();

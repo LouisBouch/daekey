@@ -35,9 +35,9 @@ use wayland_client::{Dispatch, EventQueue};
 use wayland_protocols_wlr::virtual_pointer::v1::client::zwlr_virtual_pointer_manager_v1::ZwlrVirtualPointerManagerV1;
 use wayland_protocols_wlr::virtual_pointer::v1::client::zwlr_virtual_pointer_v1::ZwlrVirtualPointerV1;
 
-use crate::wayland_int::ScreenInfo;
-use crate::wayland_int::shell_layers::ShellLayer;
-use crate::wayland_int::wayland_context::WlCtx;
+use crate::compositor_interface::ScreenInfo;
+use crate::compositor_interface::shell_layers::ShellLayer;
+use crate::compositor_interface::compositor_context::CmpCtx;
 #[derive(Debug)]
 enum Answer {
     AbsCursorPos(Point),
@@ -55,8 +55,8 @@ enum LayersState {
     Ready,
 }
 #[derive(Debug)]
-pub(crate) struct CompClient {
-    wayland_context: WlCtx,
+pub(crate) struct CmpClient {
+    compositor_context: CmpCtx,
 
     /// The list of shell layers that cover the screen outputs.
     shell_layers: Vec<ShellLayer>,
@@ -65,15 +65,15 @@ pub(crate) struct CompClient {
 
     answer: Option<Answer>,
 }
-impl CompClient {
+impl CmpClient {
     fn setup_client()
-    -> Result<(CompClient, EventQueue<CompClient>, EventLoop<'static, Self>), Box<dyn Error>> {
+    -> Result<(CmpClient, EventQueue<CmpClient>, EventLoop<'static, Self>), Box<dyn Error>> {
         // Try to connect to the Wayland server.
         let conn = Connection::connect_to_env()?;
 
         // Now create an event queue and a handle to the queue so we can create objects.
         let (globals, mut event_queue) = registry_queue_init(&conn).unwrap();
-        let qh: QueueHandle<CompClient> = event_queue.handle();
+        let qh: QueueHandle<CmpClient> = event_queue.handle();
 
         // Since we are not using the GPU in this example, we use wl_shm to allow software rendering to a buffer
         // we share with the compositor process.
@@ -85,7 +85,7 @@ impl CompClient {
         //
         // This is where you will store your delegates and any data you wish to access/mutate while the
         // application is running.
-        let wl_ctx = WlCtx {
+        let cmp_ctx = CmpCtx {
             // Initialize the registry handling so other parts of Smithay's client toolkit may bind
             // globals.
             registry_state: RegistryState::new(&globals),
@@ -102,8 +102,8 @@ impl CompClient {
             v_pointer,
         };
         let event_loop = EventLoop::try_new()?;
-        let mut comp_client_state = CompClient {
-            wayland_context: wl_ctx,
+        let mut comp_client_state = CmpClient {
+            compositor_context: cmp_ctx,
             shell_layers: Vec::new(),
             answer: None,
             layers_state: LayersState::Empty,
@@ -111,14 +111,14 @@ impl CompClient {
         event_queue.roundtrip(&mut comp_client_state)?;
         Ok((comp_client_state, event_queue, event_loop))
     }
-    fn initialize_layers(&mut self, qh: &QueueHandle<CompClient>) -> Result<(), Box<dyn Error>> {
+    fn initialize_layers(&mut self, qh: &QueueHandle<CmpClient>) -> Result<(), Box<dyn Error>> {
         // Clear old layers.
         self.layers_state = LayersState::Empty;
         self.shell_layers.clear();
 
-        let outputs: Vec<WlOutput> = self.wayland_context.output_state.outputs().collect();
+        let outputs: Vec<WlOutput> = self.compositor_context.output_state.outputs().collect();
         for output in outputs.iter() {
-            let shell_layer = ShellLayer::from_output(&output, &self.wayland_context, &qh)?;
+            let shell_layer = ShellLayer::from_output(&output, &self.compositor_context, &qh)?;
             self.shell_layers.push(shell_layer);
         }
         self.layers_state = LayersState::AwaitingConf;
@@ -145,19 +145,19 @@ impl CompClient {
     }
 }
 // Used to allow region creation.
-impl Dispatch<wl_region::WlRegion, ()> for CompClient {
+impl Dispatch<wl_region::WlRegion, ()> for CmpClient {
     fn event(
         _: &mut Self,
         _: &wl_region::WlRegion,
         _: wl_region::Event,
         _: &(),
         _: &Connection,
-        _: &QueueHandle<CompClient>,
+        _: &QueueHandle<CmpClient>,
     ) {
     }
 }
 // Used to allow creation of virtual cursor.
-impl Dispatch<ZwlrVirtualPointerManagerV1, ()> for CompClient {
+impl Dispatch<ZwlrVirtualPointerManagerV1, ()> for CmpClient {
     fn event(
         _: &mut Self,
         _: &ZwlrVirtualPointerManagerV1,
@@ -168,7 +168,7 @@ impl Dispatch<ZwlrVirtualPointerManagerV1, ()> for CompClient {
     ) {
     }
 }
-impl Dispatch<ZwlrVirtualPointerV1, ()> for CompClient {
+impl Dispatch<ZwlrVirtualPointerV1, ()> for CmpClient {
     fn event(
         _: &mut Self,
         _: &ZwlrVirtualPointerV1,
@@ -183,7 +183,7 @@ enum CallbackReason {
     SyncAbsMousePos(Sender<Result<Point, CursorFetchErr>>),
     LayersConfigured,
 }
-impl Dispatch<WlCallback, CallbackReason> for CompClient {
+impl Dispatch<WlCallback, CallbackReason> for CmpClient {
     fn event(
         state: &mut Self,
         _proxy: &WlCallback,
@@ -205,7 +205,7 @@ impl Dispatch<WlCallback, CallbackReason> for CompClient {
                     // No answer means it was not deactivated, so do it now.
                     state.set_shell_layer_activation(false);
                     // Force focus back to window that was under the layer.
-                    state.wayland_context.trigger_mouse();
+                    state.compositor_context.trigger_mouse();
                     let err = if state.layers_state != LayersState::Ready {
                         Err(CursorFetchErr::LayerNotReady)
                     } else {
@@ -224,13 +224,13 @@ impl Dispatch<WlCallback, CallbackReason> for CompClient {
 
 // In order to use OutputDelegate, we must implement this trait to indicate when something has happened to an
 // output and to provide an instance of the output state to the delegate when dispatching events.
-impl OutputHandler for CompClient {
+impl OutputHandler for CmpClient {
     // First we need to provide a way to access the delegate.
     //
     // This is needed because delegate implementations for handling events use the application data type in
     // their function signatures. This allows the implementation to access an instance of the type.
     fn output_state(&mut self) -> &mut OutputState {
-        &mut self.wayland_context.output_state
+        &mut self.compositor_context.output_state
     }
 
     // Then there exist these functions that indicate the lifecycle of an output.
@@ -272,9 +272,9 @@ impl OutputHandler for CompClient {
     }
 }
 
-smithay_client_toolkit::delegate_dispatch2!(CompClient);
+smithay_client_toolkit::delegate_dispatch2!(CmpClient);
 
-impl PointerHandler for CompClient {
+impl PointerHandler for CmpClient {
     fn pointer_frame(
         &mut self,
         _conn: &Connection,
@@ -303,7 +303,7 @@ impl PointerHandler for CompClient {
 
                     self.set_shell_layer_activation(false);
                     // Force focus back to window that was under the layer.
-                    self.wayland_context.trigger_mouse();
+                    self.compositor_context.trigger_mouse();
                 }
                 Leave { .. } => {
                     println!(
@@ -319,9 +319,9 @@ impl PointerHandler for CompClient {
     }
 }
 
-impl SeatHandler for CompClient {
+impl SeatHandler for CmpClient {
     fn seat_state(&mut self) -> &mut SeatState {
-        &mut self.wayland_context.seat_state
+        &mut self.compositor_context.seat_state
     }
 
     fn new_seat(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_seat::WlSeat) {}
@@ -333,14 +333,14 @@ impl SeatHandler for CompClient {
         seat: wl_seat::WlSeat,
         capability: Capability,
     ) {
-        if capability == Capability::Pointer && self.wayland_context.pointer.is_none() {
+        if capability == Capability::Pointer && self.compositor_context.pointer.is_none() {
             println!("Set pointer capability");
             let pointer = self
-                .wayland_context
+                .compositor_context
                 .seat_state
                 .get_pointer(qh, &seat)
                 .expect("Failed to create pointer");
-            self.wayland_context.pointer = Some(pointer);
+            self.compositor_context.pointer = Some(pointer);
         }
     }
 
@@ -351,9 +351,9 @@ impl SeatHandler for CompClient {
         _: wl_seat::WlSeat,
         capability: Capability,
     ) {
-        if capability == Capability::Pointer && self.wayland_context.pointer.is_some() {
+        if capability == Capability::Pointer && self.compositor_context.pointer.is_some() {
             println!("Unset pointer capability");
-            self.wayland_context.pointer.take().unwrap().release();
+            self.compositor_context.pointer.take().unwrap().release();
         }
     }
 
@@ -365,9 +365,9 @@ impl SeatHandler for CompClient {
 //
 // We also need to indicate which delegates will get told about globals being created. We specify
 // the types of the delegates inside the array.
-impl ProvidesRegistryState for CompClient {
+impl ProvidesRegistryState for CmpClient {
     fn registry(&mut self) -> &mut RegistryState {
-        &mut self.wayland_context.registry_state
+        &mut self.compositor_context.registry_state
     }
 
     registry_handlers! {
@@ -381,14 +381,14 @@ impl ProvidesRegistryState for CompClient {
 // In order for our delegate to know of the existence of globals, we need to implement registry
 // handling for the program. This trait will forward events to the RegistryHandler trait
 // implementations.
-delegate_registry!(CompClient);
+delegate_registry!(CmpClient);
 
-impl ShmHandler for CompClient {
+impl ShmHandler for CmpClient {
     fn shm_state(&mut self) -> &mut Shm {
-        &mut self.wayland_context.shm
+        &mut self.compositor_context.shm
     }
 }
-impl CompositorHandler for CompClient {
+impl CompositorHandler for CmpClient {
     fn scale_factor_changed(
         &mut self,
         _conn: &Connection,
@@ -438,7 +438,7 @@ impl CompositorHandler for CompClient {
         // Not needed for this example.
     }
 }
-impl LayerShellHandler for CompClient {
+impl LayerShellHandler for CmpClient {
     fn closed(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _layer: &LayerSurface) {}
 
     fn configure(
@@ -470,7 +470,7 @@ impl LayerShellHandler for CompClient {
             shell_layer.draw_shell();
             if self.shell_layers.iter().all(|s| !s.first_configure) {
                 self.layers_state = LayersState::AwaitingSync;
-                self.wayland_context
+                self.compositor_context
                     .connection
                     .display()
                     .sync(&qh, CallbackReason::LayersConfigured);
@@ -541,8 +541,8 @@ impl CompClientInterface {
         CompClientInterface { sender }
     }
     fn run(receiver: calloop::channel::Channel<CompClientReq>) -> Result<(), Box<dyn Error>> {
-        let (mut cmp_client, event_queue, mut event_loop) = CompClient::setup_client()?;
-        let conn = cmp_client.wayland_context.connection.clone();
+        let (mut cmp_client, event_queue, mut event_loop) = CmpClient::setup_client()?;
+        let conn = cmp_client.compositor_context.connection.clone();
         let qh = event_queue.handle();
         let lh = event_loop.handle();
         let s = WaylandSource::new(conn.clone(), event_queue);
@@ -555,10 +555,10 @@ impl CompClientInterface {
                             CompClientReq::AbsCursorPos(sender) => {
                                 cmp_client.set_shell_layer_activation(true);
                                 // Force focus on the newly created layer to get the cursor enter event.
-                                cmp_client.wayland_context.trigger_mouse();
+                                cmp_client.compositor_context.trigger_mouse();
 
                                 cmp_client
-                                    .wayland_context
+                                    .compositor_context
                                     .connection
                                     .display()
                                     .sync(&qh, CallbackReason::SyncAbsMousePos(sender.clone()));

@@ -12,8 +12,8 @@ use wayland_client::protocol::wl_output::WlOutput;
 use wayland_client::protocol::wl_region::WlRegion;
 use wayland_client::{QueueHandle, protocol::wl_shm};
 
-use crate::wayland_int::{ScreenInfo, comp_client_interface::CompClient};
-use crate::wayland_int::wayland_context::WlCtx;
+use crate::compositor_interface::{ScreenInfo, CompositorClient};
+use crate::compositor_interface::compositor_context::CompositorContext;
 
 #[derive(Debug)]
 pub(crate) struct ShellLayer {
@@ -26,10 +26,10 @@ pub(crate) struct ShellLayer {
 impl ShellLayer {
     pub(crate) fn from_output(
         output: &WlOutput,
-        wl_ctx: &WlCtx,
-        qh: &QueueHandle<CompClient>,
+        cmp_ctx: &CompositorContext,
+        qh: &QueueHandle<CompositorClient>,
     ) -> Result<Self, Box<dyn Error>> {
-        let info = wl_ctx
+        let info = cmp_ctx
             .output_state
             .info(output)
             .ok_or(Box::<dyn Error>::from(format!(
@@ -52,9 +52,9 @@ impl ShellLayer {
             .logical_size
             .ok_or_else(|| format!("monitor {info:?} has no logical size"))?;
 
-        let layer_surface = wl_ctx.layer_shell.create_layer_surface(
+        let layer_surface = cmp_ctx.layer_shell.create_layer_surface(
             &qh,
-            wl_ctx.compositor_state.create_surface(&qh),
+            cmp_ctx.cmp_state.create_surface(&qh),
             Layer::Overlay,
             Some(format!(
                 "Monitor with origin: ({}, {}), width: {}px, height: {}px",
@@ -62,8 +62,8 @@ impl ShellLayer {
             )),
             Some(&output),
         );
-        let empty_region = wl_ctx
-            .compositor_state
+        let empty_region = cmp_ctx
+            .cmp_state
             .wl_compositor()
             .create_region(qh, ());
         layer_surface.set_size(width as u32, height as u32);
@@ -85,7 +85,7 @@ impl ShellLayer {
         };
         let shell_layer = Self {
             screen_info,
-            pool: SlotPool::new(512 * 512 * 4, &wl_ctx.shm).expect("Failed to create pool"),
+            pool: SlotPool::new(512 * 512 * 4, &cmp_ctx.shm).expect("Failed to create pool"),
             layer_surface,
             empty_region,
             first_configure: true,

@@ -11,7 +11,7 @@ use crate::{
     api::Api,
     input::{KeyState, Keybind},
     modifiers,
-    wayland_int::display_output::ScreenSpace,
+    compositor_interface::ScreenSpace,
 };
 
 /// Holds everything necessary for the app to work.

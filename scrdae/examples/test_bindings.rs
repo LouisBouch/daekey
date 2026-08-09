@@ -73,6 +73,14 @@ fn main() {
             }
         },
     );
+    binder.create_binding(
+        Keybind::new(KeyCode::KEY_P, KeyState::Pressed, modifiers::LEFT_SHIFT),
+        {
+            move |api| {
+                dbg!(api.get_abs_mouse_position());
+            }
+        },
+    );
     binder.set_exit_key(Keybind::new(
         KeyCode::KEY_PAUSE,
         KeyState::Pressed,

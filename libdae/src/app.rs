@@ -14,10 +14,7 @@ use nix::sys::socket::{ControlMessage, MsgFlags, sendmsg};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    api::{Api, ApiHolder},
-    binder::Binder,
-    input::Keybind,
-    wayland_int::{self, comp_client_interface, ScreenSpace},
+    api::{Api, ApiHolder}, binder::Binder, compositor_interface::{self, CompositorInterface, ScreenSpace}, input::Keybind
 };
 
 
@@ -78,9 +75,9 @@ pub fn launch(mut binder: Binder) {
 
     // TODO: Add the interface handle to the app as a field and implement api functionality to make
     // use of the abscurpos request and displayinfo request.
-    let wld_intf = comp_client_interface::CompClientInterface::init();
-    let screen_info = wld_intf.req_screen_info();
-    let screen_space = wayland_int::ScreenSpace::from_monitors(&screen_info);
+    let cmp_intf = CompositorInterface::init();
+    let screen_info = cmp_intf.req_screen_info();
+    let screen_space = compositor_interface::ScreenSpace::from_monitors(&screen_info);
 
     // Notify the privileged process of the context.
     let context = SetupContext {
@@ -102,7 +99,7 @@ pub fn launch(mut binder: Binder) {
         api_instances
             .lock()
             .expect("mutex should lock")
-            .push(Api::new(socket));
+            .push(Api::new(socket, cmp_intf.clone()));
     }
 
     // Send the bindings over.

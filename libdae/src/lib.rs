@@ -6,7 +6,7 @@ pub mod api;
 pub mod message;
 pub mod modifiers;
 #[doc(hidden)]
-pub mod wayland_int;
+pub mod compositor_interface;
 
 pub use evdev::KeyCode;
 pub use evdev::{RelativeAxisCode, AbsoluteAxisCode};
