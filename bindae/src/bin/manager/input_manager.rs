@@ -7,7 +7,6 @@ use std::{
     },
     path::PathBuf,
     thread::JoinHandle,
-    time::Instant,
 };
 
 pub struct InputShare {
@@ -27,7 +26,7 @@ use libdae::{
     input::{KeyAction, KeyState, Keybind, MouseAction, MouseRelAction},
     message, modifiers,
 };
-use nix::poll::{PollFlags, PollTimeout, poll};
+use nix::poll::{PollFd, PollFlags, PollTimeout, poll};
 
 #[derive(Clone, Copy)]
 enum DevType {
@@ -100,6 +99,24 @@ pub fn launch_input_listener(
     });
     Ok(InputShare { handle })
 }
+/// Wrapper for the file descriptor that contains its source.
+struct WrappedFd<'fd> {
+    /// The file descriptor.
+    fd: BorrowedFd<'fd>,
+    /// Source of the fd.
+    source: FdSource,
+}
+/// Source of a file descriptor.
+enum FdSource {
+    /// Source of fd is an input device
+    ///
+    /// # Parameters
+    ///
+    /// * `usize` - The id of the device in the device list.
+    Device(usize),
+    /// Source of fd is a socket.
+    Socket,
+}
 fn input_loop(
     mut device_list: Vec<(Device, DevType)>,
     uinput_channel: Sender<message::MsgToUInput>,
@@ -107,25 +124,33 @@ fn input_loop(
 ) -> std::io::Result<()> {
     let mut bindings: HashSet<Keybind> = HashSet::new();
     // Listen to devices.
-    let mut polling_fds: Vec<_> = device_list
+    let mut wrapped_fds: Vec<_> = device_list
         .iter()
-        .map(|v| unsafe {
-            nix::poll::PollFd::new(BorrowedFd::borrow_raw(v.0.as_raw_fd()), PollFlags::POLLIN)
+        .enumerate()
+        .map(|(i, v)| unsafe {
+            WrappedFd {
+                fd: BorrowedFd::borrow_raw(v.0.as_raw_fd()),
+                source: FdSource::Device(i),
+            }
         })
         .collect();
-    unsafe {
-        polling_fds.push(nix::poll::PollFd::new(
-            BorrowedFd::borrow_raw(input_socket.as_raw_fd()),
-            PollFlags::POLLIN,
-        ))
-    };
+    wrapped_fds.push(unsafe {
+        WrappedFd {
+            fd: BorrowedFd::borrow_raw(input_socket.as_raw_fd()),
+            source: FdSource::Socket,
+        }
+    });
     let mut cur_modifiers_per_dev: Vec<modifiers::Modifiers> =
         vec![modifiers::NONE; device_list.len()];
 
     let mut key_actions: Vec<KeyAction> = Vec::with_capacity(4);
     let mut mouse_actions: Vec<MouseAction> = Vec::with_capacity(4);
+    let mut poll_fds: Vec<PollFd> = wrapped_fds
+        .iter()
+        .map(|v| nix::poll::PollFd::new(v.fd, PollFlags::POLLIN))
+        .collect();
     loop {
-        if poll(&mut polling_fds, PollTimeout::NONE).is_err() {
+        if poll(&mut poll_fds, PollTimeout::NONE).is_err() {
             break;
         }
         // TODO: TEST IT AGAIN LATER.
@@ -134,33 +159,38 @@ fn input_loop(
 
         let sf_exp = "status flag should be valid";
         // Find which device triggered.
-        for poll_fd_id in 0..polling_fds.len() {
-            if !polling_fds[poll_fd_id].any().expect(sf_exp) {
+        for (wrapped_fd, poll_fd) in wrapped_fds.iter().zip(poll_fds.iter()) {
+            if !poll_fd.any().expect(sf_exp) {
                 continue;
             }
-            // Message for input and not from a device.
-            // This channel is exclusively used to send bindings.
-            if poll_fd_id == polling_fds.len() - 1 {
-                bindings = postcard::from_io((&input_socket, &mut [0; 256])).unwrap().0;
-                continue;
-            }
-            match &mut device_list[poll_fd_id] {
-                (dev, DevType::Kbd) => handle_kbd_events(
-                    dev.fetch_events()?,
-                    &mut key_actions,
-                    &mut cur_modifiers_per_dev[poll_fd_id],
-                    &mut bindings,
-                    &uinput_channel,
-                    &input_socket,
-                )?,
-                (dev, DevType::Mouse) => handle_mouse_events(
-                    dev.fetch_events()?,
-                    &mut mouse_actions,
-                    &mut cur_modifiers_per_dev[poll_fd_id],
-                    &mut bindings,
-                    &uinput_channel,
-                    &input_socket,
-                )?,
+            match wrapped_fd.source {
+                FdSource::Device(dev_id) => match &mut device_list[dev_id] {
+                    (dev, DevType::Kbd) => handle_kbd_events(
+                        dev.fetch_events()?,
+                        &mut key_actions,
+                        &mut cur_modifiers_per_dev[dev_id],
+                        &mut bindings,
+                        &uinput_channel,
+                        &input_socket,
+                    )?,
+                    (dev, DevType::Mouse) => handle_mouse_events(
+                        dev.fetch_events()?,
+                        &mut mouse_actions,
+                        &mut cur_modifiers_per_dev[dev_id],
+                        &mut bindings,
+                        &uinput_channel,
+                        &input_socket,
+                    )?,
+                },
+                FdSource::Socket => {
+                    let msg: message::MsgToInput =
+                        postcard::from_io((&input_socket, &mut [0; 256])).unwrap().0;
+                    match msg {
+                        message::MsgToInput::ChangeBindings(new_bindings) => {
+                            bindings = new_bindings
+                        }
+                    }
+                }
             }
         }
     }

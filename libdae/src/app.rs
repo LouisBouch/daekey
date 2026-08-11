@@ -19,6 +19,7 @@ use crate::{
     binder::Binder,
     compositor_interface::{self, CompositorInterface, ScreenSpace},
     input::Keybind,
+    message::MsgToInput,
 };
 
 /// Start the privileged process.
@@ -112,7 +113,8 @@ pub fn launch(mut binder: Binder) {
     }
     keybinds.insert(binder.toggle_bindings_key());
     keybinds.insert(binder.exit_key());
-    postcard::to_io(&keybinds, &input_socket).expect("postcard should be able to serialize");
+    postcard::to_io(&MsgToInput::ChangeBindings(keybinds.clone()), &input_socket)
+        .expect("postcard should be able to serialize");
 
     // Start thread pool.
     let pool = rayon::ThreadPoolBuilder::new()
@@ -141,14 +143,17 @@ pub fn launch(mut binder: Binder) {
                 if key_event == binder.toggle_bindings_key() {
                     binder.set_paused(!binder.paused());
                     if binder.paused() {
-                        let mut keybinds = HashSet::new();
-                        keybinds.insert(binder.toggle_bindings_key());
-                        keybinds.insert(binder.exit_key());
-                        postcard::to_io(&keybinds, &input_socket)
+                        let mut new_keybinds = HashSet::new();
+                        new_keybinds.insert(binder.toggle_bindings_key());
+                        new_keybinds.insert(binder.exit_key());
+                        postcard::to_io(&MsgToInput::ChangeBindings(new_keybinds), &input_socket)
                             .expect("postcard should be able to serialize");
                     } else {
-                        postcard::to_io(&keybinds, &input_socket)
-                            .expect("postcard should be able to serialize");
+                        postcard::to_io(
+                            &MsgToInput::ChangeBindings(keybinds.clone()),
+                            &input_socket,
+                        )
+                        .expect("postcard should be able to serialize");
                     }
                     continue;
                 } else if key_event == binder.exit_key() {
