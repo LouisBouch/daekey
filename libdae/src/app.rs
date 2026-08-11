@@ -1,6 +1,8 @@
 //! Handles the creation of the necessary threads and processes.
 use std::{
     collections::HashSet,
+    error::Error,
+    fmt::Display,
     io::IoSlice,
     os::{
         fd::{AsRawFd, FromRawFd, IntoRawFd},
@@ -224,5 +226,37 @@ impl SetupContext {
     }
     pub fn screen_space(&self) -> &ScreenSpace {
         &self.screen_space
+    }
+}
+// TODO: Use socket type to send over sockets with better description instead of relying on indices.
+#[doc(hidden)]
+#[repr(u8)]
+#[derive(Debug, Clone, Copy)]
+/// Describes what a socket will be used for,
+pub enum SocketType {
+    /// A worker will own this socket.
+    Worker = 0,
+    /// The Input thread will own this socket.
+    Input = 1,
+    /// The UInput thread will own this socket.
+    UInput = 2,
+}
+impl SocketType {
+    pub fn from_u8(v: u8) -> Result<Self, InvalidSocketTypeId> {
+        match v {
+            0 => Ok(SocketType::Worker),
+            1 => Ok(SocketType::Input),
+            2 => Ok(SocketType::UInput),
+            other => Err(InvalidSocketTypeId(other)),
+        }
+    }
+}
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy)]
+pub struct InvalidSocketTypeId(u8);
+impl Error for InvalidSocketTypeId {}
+impl Display for InvalidSocketTypeId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Invalid socket type id: {}", self.0)
     }
 }
