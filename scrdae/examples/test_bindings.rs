@@ -1,7 +1,7 @@
 use std::{
     sync::{Arc, atomic::AtomicBool},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use libdae::{
@@ -33,12 +33,12 @@ fn main() {
         },
     );
     binder.create_binding(
-        Keybind::new(KeyCode::KEY_T, KeyState::Pressed, modifiers::LEFT_SHIFT),
+        Keybind::new(KeyCode::KEY_EQUAL, KeyState::Pressed, modifiers::NONE),
         {
             move |api| {
                 api.send_key_tap(
-                    KeyCode::KEY_T,
-                    AppliedModifiers::Exact(modifiers::LEFT_SHIFT),
+                    KeyCode::KEY_EQUAL,
+                    AppliedModifiers::Exact(modifiers::NONE),
                 );
             }
         },
@@ -77,7 +77,7 @@ fn main() {
         Keybind::new(KeyCode::KEY_P, KeyState::Pressed, modifiers::LEFT_SHIFT),
         {
             move |api| {
-                dbg!(api.get_abs_mouse_position());
+                let _ = dbg!(api.get_abs_mouse_position());
             }
         },
     );

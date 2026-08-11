@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use crate::{input::{KeyAction, Keybind, MouseAction}, modifiers::Modifiers};
+use crate::{compositor_interface::ScreenSpace, input::{KeyAction, Keybind, MouseAction}, modifiers::Modifiers};
 use crossbeam_channel::Sender;
 use evdev::KeyCode;
 use serde::{Deserialize, Serialize};
@@ -33,10 +33,16 @@ pub enum AppliedModifiers {
 /// Mesasge to UInput thread.
 #[derive(Serialize, Deserialize, Debug)]
 pub enum MsgToUInput {
+    /// Send a list of keybaord actions.
     SendKeyActions(Vec<KeyAction>),
+    /// Send a single keyboard key tap.
     SendKeyTap(KeyCode, AppliedModifiers),
+    /// Send a list of mouse actions.
     SendMouseActions(Vec<MouseAction>),
+    /// Send a single mouse click.
     SendMouseClick(KeyCode, AppliedModifiers),
+    /// Tells UInput the screen ouputs have been updated.
+    UpdateScreenSpace(ScreenSpace),
 }
 
 /// Mesasge to Input thread.

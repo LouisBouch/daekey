@@ -6,12 +6,15 @@ use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::fmt::Display;
 use std::thread;
+use std::time::Duration;
 
-use crossbeam_channel::Sender;
+use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
 use smithay_client_toolkit::reexports::calloop::{self};
 use smithay_client_toolkit::reexports::calloop_wayland_source::WaylandSource;
 
-use crate::compositor_interface::compositor_client::{CallbackReason, CompositorClient};
+use crate::compositor_interface::compositor_client::{
+    CallbackReason, CompUpdate, CompositorClient,
+};
 
 pub(crate) mod compositor_client;
 pub(crate) mod compositor_context;
@@ -108,6 +111,7 @@ enum CompReq {
 /// why the cursor wasn't captured, the best way to give info about the error is to put some context
 /// around it.
 pub struct CursorFetchErr(Vec<CursorFetchErrCtx>);
+impl Error for CursorFetchErr {}
 impl Display for CursorFetchErr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.0.is_empty() {
@@ -139,23 +143,28 @@ pub(crate) struct CompositorInterface {
 /// Cloneable interface to talk to the compositor client.
 impl CompositorInterface {
     /// Create a new connection to the compositor that runs on its own thread and return its interface.
-    pub fn init() -> CompositorInterface {
-        let (sender, receiver) = calloop::channel::channel::<CompReq>();
+    pub fn init() -> (CompositorInterface, Receiver<CompUpdate>) {
+        let (req_sender, req_receiver) = calloop::channel::channel::<CompReq>();
+        let (update_sender, update_receiver) = crossbeam_channel::unbounded();
         thread::spawn(|| {
-            if let Err(e) = CompositorInterface::run(receiver) {
+            if let Err(e) = CompositorInterface::run(req_receiver, update_sender) {
                 eprintln!("wayland connection failed: {e}");
             }
         });
-        CompositorInterface { sender }
+        (CompositorInterface { sender: req_sender }, update_receiver)
     }
-    fn run(receiver: calloop::channel::Channel<CompReq>) -> Result<(), Box<dyn Error>> {
-        let (mut cmp_client, event_queue, mut event_loop) = CompositorClient::setup_client()?;
+    fn run(
+        req_receiver: calloop::channel::Channel<CompReq>,
+        update_sender: Sender<CompUpdate>,
+    ) -> Result<(), Box<dyn Error>> {
+        let (mut cmp_client, event_queue, mut event_loop) =
+            CompositorClient::setup_client(update_sender)?;
         let conn = cmp_client.cmp_ctx.connection.clone();
         let qh = event_queue.handle();
         let lh = event_loop.handle();
         let s = WaylandSource::new(conn.clone(), event_queue);
         s.insert(lh.clone())?;
-        lh.insert_source(receiver, move |event, _, cmp_client| {
+        lh.insert_source(req_receiver, move |event, _, cmp_client| {
             let r = || -> Result<(), Box<dyn Error>> {
                 match event {
                     calloop::channel::Event::Msg(msg) => {
@@ -197,19 +206,61 @@ impl CompositorInterface {
         }
     }
     /// Request the absolute position of the cursor.
-    pub fn req_abs_cursor_pos(&self) -> Result<Point, CursorFetchErr> {
+    pub fn req_abs_cursor_pos(&self) -> Result<Point, CompReqErr> {
+        let pos_req_timeout = Duration::from_secs_f32(0.2);
         let (sender, receiver) = crossbeam_channel::bounded(1);
         self.sender
             .send(CompReq::AbsCursorPos(sender))
             .expect("should be able to send");
-        receiver.recv().expect("should be able to receive")
+        match receiver.recv_timeout(pos_req_timeout) {
+            Ok(v) => v.map_err(|e| CompReqErr::CursorFetchErr(e)),
+            Err(RecvTimeoutError::Timeout) => Err(CompReqErr::RequestTimeout),
+            Err(RecvTimeoutError::Disconnected) => Err(CompReqErr::ChannelDisconnected),
+        }
     }
     /// Request information about the screens.
-    pub fn req_screen_info(&self) -> Vec<ScreenInfo> {
+    pub fn req_screen_info(&self) -> Result<Vec<ScreenInfo>, CompReqErr> {
+        let screen_req_timeout = Duration::from_secs_f32(0.2);
         let (sender, receiver) = crossbeam_channel::bounded(1);
         self.sender
             .send(CompReq::ScreenInfo(sender))
             .expect("should be able to send");
-        receiver.recv().expect("should be able to receive")
+        match receiver.recv_timeout(screen_req_timeout) {
+            Ok(v) => Ok(v),
+            Err(RecvTimeoutError::Timeout) => Err(CompReqErr::RequestTimeout),
+            Err(RecvTimeoutError::Disconnected) => Err(CompReqErr::ChannelDisconnected),
+        }
+    }
+}
+/// Error when reqeusting something from the compositor.
+#[derive(Debug)]
+pub enum CompReqErr {
+    /// Request has timed out.
+    RequestTimeout,
+    /// Channel has disconnected.
+    ChannelDisconnected,
+    /// Error from the compositor client when fetching cursor pos.
+    CursorFetchErr(CursorFetchErr),
+}
+impl Error for CompReqErr {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            CompReqErr::RequestTimeout => None,
+            CompReqErr::ChannelDisconnected => None,
+            CompReqErr::CursorFetchErr(cursor_fetch_err) => Some(cursor_fetch_err),
+        }
+    }
+}
+impl Display for CompReqErr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CompReqErr::RequestTimeout => write!(f, "Request to compositor timed out"),
+            CompReqErr::ChannelDisconnected => write!(f, "Channel has disconnected"),
+            CompReqErr::CursorFetchErr(cursor_fetch_err) => write!(
+                f,
+                "Error in compositor client while fetching cursor position: {}",
+                cursor_fetch_err
+            ),
+        }
     }
 }

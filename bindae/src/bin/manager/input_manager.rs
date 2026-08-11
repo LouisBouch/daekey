@@ -7,6 +7,7 @@ use std::{
     },
     path::PathBuf,
     thread::JoinHandle,
+    time::Instant,
 };
 
 pub struct InputShare {
@@ -118,7 +119,8 @@ fn input_loop(
             PollFlags::POLLIN,
         ))
     };
-    let mut cur_modifiers_per_dev: Vec<modifiers::Modifiers> = vec![modifiers::NONE; device_list.len()];
+    let mut cur_modifiers_per_dev: Vec<modifiers::Modifiers> =
+        vec![modifiers::NONE; device_list.len()];
 
     let mut key_actions: Vec<KeyAction> = Vec::with_capacity(4);
     let mut mouse_actions: Vec<MouseAction> = Vec::with_capacity(4);
@@ -126,6 +128,9 @@ fn input_loop(
         if poll(&mut polling_fds, PollTimeout::NONE).is_err() {
             break;
         }
+        // TODO: TEST IT AGAIN LATER.
+        // let now = Instant::now();
+        // println!("sent: {:?}", now);
 
         let sf_exp = "status flag should be valid";
         // Find which device triggered.

@@ -8,7 +8,7 @@ use std::{
 use evdev::KeyCode;
 
 use crate::{
-    compositor_interface::{CompositorInterface, CursorFetchErr, Point, ScreenInfo},
+    compositor_interface::{CompReqErr, CompositorInterface, Point, ScreenInfo},
     input::{KeyAction, MouseAction},
     message::{self, AppliedModifiers, MsgToUInput},
 };
@@ -29,33 +29,33 @@ impl Api {
     /// Send a list of key press/release to the compositor through the privileged process.
     pub fn send_key_actions(&self, actions: Vec<KeyAction>) {
         let mes = message::MsgToUInput::SendKeyActions(actions);
-        self.send_msg(mes);
+        self.send_to_uinput(mes);
     }
     /// Send a key press followed by release to the compositor through the privileged process.
     pub fn send_key_tap(&self, key: KeyCode, modifiers: AppliedModifiers) {
         let mes = message::MsgToUInput::SendKeyTap(key, modifiers);
-        self.send_msg(mes);
+        self.send_to_uinput(mes);
     }
     /// Send a key press for the mouse followed by release to the compositor through the privileged process.
     pub fn send_mouse_click(&self, key: KeyCode, modifiers: AppliedModifiers) {
         let mes = message::MsgToUInput::SendMouseClick(key, modifiers);
-        self.send_msg(mes);
+        self.send_to_uinput(mes);
     }
     /// Send a relative mouse movement to the compositor through the privileged process.
     pub fn send_mouse_actions(&self, actions: Vec<MouseAction>) {
         let mes = message::MsgToUInput::SendMouseActions(actions);
-        self.send_msg(mes);
+        self.send_to_uinput(mes);
     }
     /// Get the absolute mouse position.
-    pub fn get_abs_mouse_position(&self) -> Result<Point, CursorFetchErr> {
+    pub fn get_abs_mouse_position(&self) -> Result<Point, CompReqErr> {
         self.cmp_intf.req_abs_cursor_pos()
     }
     /// Get info about the screens .
-    pub fn get_screen_info(&self) -> Vec<ScreenInfo> {
+    pub fn get_screen_info(&self) -> Result<Vec<ScreenInfo>, CompReqErr> {
         self.cmp_intf.req_screen_info()
     }
     /// Send a message to the privileged  process' UInput through a socket.
-    fn send_msg(&self, mes: MsgToUInput) {
+    fn send_to_uinput(&self, mes: MsgToUInput) {
         let socket = self
             .socket_to_worker
             .as_ref()

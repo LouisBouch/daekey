@@ -8,15 +8,18 @@ use std::{
     },
     process::{Child, Command, Stdio},
     sync::{Arc, Mutex},
+    thread,
 };
 
 use nix::sys::socket::{ControlMessage, MsgFlags, sendmsg};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    api::{Api, ApiHolder}, binder::Binder, compositor_interface::{self, CompositorInterface, ScreenSpace}, input::Keybind
+    api::{Api, ApiHolder},
+    binder::Binder,
+    compositor_interface::{self, CompositorInterface, ScreenSpace},
+    input::Keybind,
 };
-
 
 /// Start the privileged process.
 ///
@@ -72,11 +75,11 @@ pub fn launch(mut binder: Binder) {
     let (socket_core_end, socket_priv_end) = std::os::unix::net::UnixStream::pair().unwrap();
     let mut child = start_priv_process(socket_priv_end);
 
-
-    // TODO: Add the interface handle to the app as a field and implement api functionality to make
-    // use of the abscurpos request and displayinfo request.
-    let cmp_intf = CompositorInterface::init();
-    let screen_info = cmp_intf.req_screen_info();
+    let (cmp_intf, upd_rec) = CompositorInterface::init();
+    //TODO: if no screen info, just disable some functionalities.
+    let screen_info = cmp_intf
+        .req_screen_info()
+        .expect("screen info should be available");
     let screen_space = compositor_interface::ScreenSpace::from_monitors(&screen_info);
 
     // Notify the privileged process of the context.
@@ -117,53 +120,55 @@ pub fn launch(mut binder: Binder) {
         .build()
         .expect("thread pool should have been initialized");
     // Listen to input.
-    loop {
-        let mut buf = [0; 256];
-        let key_event_res = postcard::from_io((&input_socket, &mut buf));
-        let key_event: Keybind = match key_event_res {
-            Ok(v) => v.0,
-            Err(e) => match e {
-                postcard::Error::DeserializeUnexpectedEnd => {
-                    eprintln!("child process died, aborting: '{e}'");
-                    std::process::exit(1);
+    thread::spawn(move || {
+        loop {
+            let mut buf = [0; 256];
+            let key_event_res = postcard::from_io((&input_socket, &mut buf));
+            let key_event: Keybind = match key_event_res {
+                Ok(v) => v.0,
+                Err(e) => match e {
+                    postcard::Error::DeserializeUnexpectedEnd => {
+                        eprintln!("child process died, aborting: '{e}'");
+                        std::process::exit(1);
+                    }
+                    _ => {
+                        eprintln!("unexpected error, could not read from socket, aborting: '{e}'");
+                        std::process::exit(1);
+                    }
+                },
+            };
+            let Some(closure) = binder.bindings().get(&key_event).cloned() else {
+                if key_event == binder.toggle_bindings_key() {
+                    binder.set_paused(!binder.paused());
+                    if binder.paused() {
+                        let mut keybinds = HashSet::new();
+                        keybinds.insert(binder.toggle_bindings_key());
+                        keybinds.insert(binder.exit_key());
+                        postcard::to_io(&keybinds, &input_socket)
+                            .expect("postcard should be able to serialize");
+                    } else {
+                        postcard::to_io(&keybinds, &input_socket)
+                            .expect("postcard should be able to serialize");
+                    }
+                    continue;
+                } else if key_event == binder.exit_key() {
+                    println!("Process terminated by user");
+                    // TODO: Exit more gracefully.
+                    std::process::exit(0);
                 }
-                _ => {
-                    eprintln!("unexpected error, could not read from socket, aborting: '{e}'");
-                    std::process::exit(1);
+                eprintln!("key received from input is not bound: '{key_event:?}'");
+                break;
+            };
+            // Spawn closure with an [`ApiHolder`].
+            match api_instances.lock().expect("should yield lock").pop() {
+                Some(api) => {
+                    let api_holder = ApiHolder::new(api, api_instances.clone());
+                    pool.spawn(move || closure(&api_holder));
                 }
-            },
-        };
-        let Some(closure) = binder.bindings().get(&key_event).cloned() else {
-            if key_event == binder.toggle_bindings_key() {
-                binder.set_paused(!binder.paused());
-                if binder.paused() {
-                    let mut keybinds = HashSet::new();
-                    keybinds.insert(binder.toggle_bindings_key());
-                    keybinds.insert(binder.exit_key());
-                    postcard::to_io(&keybinds, &input_socket)
-                        .expect("postcard should be able to serialize");
-                } else {
-                    postcard::to_io(&keybinds, &input_socket)
-                        .expect("postcard should be able to serialize");
-                }
-                continue;
-            } else if key_event == binder.exit_key() {
-                println!("Process terminated by user");
-                // TODO: Exit more gracefully.
-                std::process::exit(0);
+                None => println!("Not enough sockets/threads, skipping key..."),
             }
-            eprintln!("key received from input is not bound: '{key_event:?}'");
-            break;
-        };
-        // Spawn closure with an [`ApiHolder`].
-        match api_instances.lock().expect("should yield lock").pop() {
-            Some(api) => {
-                let api_holder = ApiHolder::new(api, api_instances.clone());
-                pool.spawn(move || closure(&api_holder));
-            }
-            None => println!("Not enough sockets/threads, skipping key..."),
         }
-    }
+    });
     child.wait().unwrap();
 }
 /// Create and share sockets that the privileged process will use.

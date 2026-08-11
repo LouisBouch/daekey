@@ -34,7 +34,14 @@ use wayland_protocols_wlr::virtual_pointer::v1::client::zwlr_virtual_pointer_v1:
 
 use crate::compositor_interface::compositor_context::CompositorContext;
 use crate::compositor_interface::shell_layers::ShellLayer;
-use crate::compositor_interface::{CursorFetchErr, CursorFetchErrCtx, Point};
+use crate::compositor_interface::{CursorFetchErr, CursorFetchErrCtx, Point, ScreenInfo};
+
+#[derive(Debug)]
+/// Describe a change in the compositor.
+pub(crate) enum CompUpdate {
+    /// The layout of the output screens changed.
+    ScreenLayoutChanged(Vec<ScreenInfo>),
+}
 
 #[derive(Debug)]
 pub(crate) enum Answer {
@@ -57,15 +64,23 @@ pub(crate) enum LayersState {
 pub(crate) struct CompositorClient {
     pub(crate) cmp_ctx: CompositorContext,
 
+    // TODO: Maybe extract screen info into its own struct instead of relying on shell_layers.
+    // This will allow non shell layer compatible compositor to still ahve access to the function.
     /// The list of shell layers that cover the screen outputs.
     pub(crate) shell_layers: Vec<ShellLayer>,
     /// State of the layers.
-    pub(crate) layers_state: LayersState,
+    layers_state: LayersState,
 
-    pub(crate) answer: Option<Answer>,
+    /// Answer from different modules of the client.
+    answer: Option<Answer>,
+
+    /// Channel to communicate back to the core.
+    update_channel: Sender<CompUpdate>,
 }
 impl CompositorClient {
-    pub(crate) fn setup_client() -> Result<
+    pub(crate) fn setup_client(
+        update_sender: Sender<CompUpdate>,
+    ) -> Result<
         (
             CompositorClient,
             EventQueue<CompositorClient>,
@@ -112,6 +127,7 @@ impl CompositorClient {
             shell_layers: Vec::new(),
             answer: None,
             layers_state: LayersState::Empty,
+            update_channel: update_sender,
         };
         event_queue.roundtrip(&mut cmp_client)?;
         Ok((cmp_client, event_queue, event_loop))
@@ -150,6 +166,14 @@ impl CompositorClient {
                 layer.layer_surface.commit();
             }
         }
+    }
+    /// Get the screen info of the compositor.
+    pub(crate) fn screen_info(&self) -> Vec<ScreenInfo> {
+        let mut screen_info = Vec::new();
+        for shell_layer in &self.shell_layers {
+            screen_info.push(shell_layer.screen_info);
+        }
+        screen_info
     }
 }
 // Used to allow region creation.
@@ -251,7 +275,13 @@ impl OutputHandler for CompositorClient {
     ) {
         println!("new");
         if let Err(e) = self.initialize_layers(&qh) {
-            eprintln!("Could not initialize layers: {e:?}");
+            eprintln!("Could not initialize layers: {e}");
+        }
+        if let Err(e) = self
+            .update_channel
+            .send(CompUpdate::ScreenLayoutChanged(self.screen_info()))
+        {
+            eprintln!("Failed to send updated screen info: {e}");
         }
     }
 
@@ -263,7 +293,13 @@ impl OutputHandler for CompositorClient {
     ) {
         println!("update");
         if let Err(e) = self.initialize_layers(&qh) {
-            eprintln!("Could not initialize layers: {e:?}");
+            eprintln!("Could not initialize layers: {e}");
+        }
+        if let Err(e) = self
+            .update_channel
+            .send(CompUpdate::ScreenLayoutChanged(self.screen_info()))
+        {
+            eprintln!("Failed to send updated screen info: {e}");
         }
     }
 
@@ -275,7 +311,13 @@ impl OutputHandler for CompositorClient {
     ) {
         println!("destroy");
         if let Err(e) = self.initialize_layers(&qh) {
-            eprintln!("Could not initialize layers: {e:?}");
+            eprintln!("Could not initialize layers: {e}");
+        }
+        if let Err(e) = self
+            .update_channel
+            .send(CompUpdate::ScreenLayoutChanged(self.screen_info()))
+        {
+            eprintln!("Failed to send updated screen info: {e}");
         }
     }
 }

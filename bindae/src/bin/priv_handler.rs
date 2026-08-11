@@ -36,7 +36,7 @@ impl PrivHandler {
             input_socket,
             uinput_share.uinput_sender().clone(),
         )
-        .expect("uinput manager shoudl launch successfully");
+        .expect("input manager should launch successfully");
 
         // Spin up workers.
         let handles = Self::launch_workers(worker_sockets, uinput_share.uinput_sender());
@@ -65,8 +65,9 @@ impl PrivHandler {
             }
         });
 
-        // If stdin dies, it means the parent died, so just exit.
-
+        // TODO: Move the Input socket here instead and communicate to input and uinput through
+        // crossbeam messages only.
+        // This will allow a single socket usage and inputs/binding changes will come through here.
         input_share.join();
         uinput_share.join();
         for (i, handle) in handles.into_iter().enumerate() {

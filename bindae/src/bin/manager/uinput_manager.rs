@@ -1,5 +1,5 @@
 //! Handles uinput and virtual device.
-use std::thread::JoinHandle;
+use std::{thread::JoinHandle, time::Instant};
 
 use crossbeam_channel::{Receiver, Sender};
 use evdev::{
@@ -28,8 +28,8 @@ impl UInputShare {
         &self.uinput_sender
     }
 }
-
-pub fn launch_uinput_listener(screen_space: &ScreenSpace) -> std::io::Result<UInputShare> {
+/// Setup the virtual keyboard.
+fn setup_virtual_keyboard() -> std::io::Result<VirtualDevice> {
     let mut kbd_key_set: AttributeSet<KeyCode> = AttributeSet::new();
     //reference: https://docs.rs/evdev/latest/src/evdev/scancodes.rs.html
     for i in (0..=248).chain(0x160..=0x21e).chain(0x230..=0x27a) {
@@ -39,7 +39,10 @@ pub fn launch_uinput_listener(screen_space: &ScreenSpace) -> std::io::Result<UIn
         .name("virt_keyboard")
         .with_keys(&kbd_key_set)?
         .build()?;
-
+    Ok(virt_kbd)
+}
+/// Setup the virtual mouse that will use relative movement.
+fn setup_virtual_mouse_relative() -> std::io::Result<VirtualDevice> {
     let mut mouse_key_set_rel: AttributeSet<KeyCode> = AttributeSet::new();
     //reference: https://docs.rs/evdev/latest/src/evdev/scancodes.rs.html
     for i in 0x100..=0x151 {
@@ -54,7 +57,10 @@ pub fn launch_uinput_listener(screen_space: &ScreenSpace) -> std::io::Result<UIn
         .with_keys(&mouse_key_set_rel)?
         .with_relative_axes(&mouse_rel_axis)?
         .build()?;
-
+    Ok(virt_mouse_rel)
+}
+/// Setup the virtual mouse that will use absolute movement.
+fn setup_virtual_mouse_absolute(screen_space: &ScreenSpace) -> std::io::Result<VirtualDevice> {
     let range = screen_space.range();
     let info_x = AbsInfo::new(0, range.top_left.x, range.bottom_right.x, 0, 0, 1);
     let info_y = AbsInfo::new(0, range.top_left.y, range.bottom_right.y, 0, 0, 1);
@@ -68,6 +74,15 @@ pub fn launch_uinput_listener(screen_space: &ScreenSpace) -> std::io::Result<UIn
         .with_absolute_axis(&UinputAbsSetup::new(AbsoluteAxisCode::ABS_X, info_x))?
         .with_absolute_axis(&UinputAbsSetup::new(AbsoluteAxisCode::ABS_Y, info_y))?
         .build()?;
+    Ok(virt_mouse_abs)
+}
+
+pub fn launch_uinput_listener(screen_space: &ScreenSpace) -> std::io::Result<UInputShare> {
+    // TODO: Use functionalities instead of hard coded devices. That way, the virtual mouse can be
+    // ignored if the requirements for it are not met.
+    let virt_kbd = setup_virtual_keyboard()?;
+    let virt_mouse_rel = setup_virtual_mouse_relative()?;
+    let virt_mouse_abs = setup_virtual_mouse_absolute(screen_space)?;
 
     let (sender, receiver) = crossbeam_channel::unbounded::<message::MsgToUInput>();
     let handle = std::thread::spawn(|| {
@@ -110,6 +125,9 @@ fn uinput_loop(
                         Err(e) => eprintln!("failed to send keys '{key_actions:?}': {e}"),
                         _ => (),
                     }
+                    // TODO: TEST IT AGAIN LATER.
+                    // let now = Instant::now();
+                    // println!("sent: {:?}", now);
                 }
                 message::MsgToUInput::SendKeyTap(key_code, req_modifiers) => {
                     send_full_motion(key_code, &mut virt_kbd, cur_modifiers, req_modifiers, false);
@@ -121,7 +139,7 @@ fn uinput_loop(
                     for mouse_action in &mouse_actions {
                         match mouse_action {
                             libdae::input::MouseAction::Abs(mouse_abs_action) => {
-                                // Add these in first to ensure the kernel accepts to move the cursor to the
+                                // Add these in first to ensure the compositor accepts moving the cursor to the
                                 // same position twice.
                                 if abs_events.is_empty() {
                                     abs_events.push(evdev::InputEvent::new_now(
@@ -188,6 +206,15 @@ fn uinput_loop(
                         req_modifiers,
                         true,
                     );
+                }
+                // Update the absolute mouse when the screen scpace changes.
+                message::MsgToUInput::UpdateScreenSpace(screen_space) => {
+                    match setup_virtual_mouse_absolute(&screen_space) {
+                        Ok(vm) => virt_mouse_abs = vm,
+                        Err(e) => eprintln!(
+                            "Failed to update absolute coordinate virtual mouse, keeping old virtual mouse: {e}"
+                        ),
+                    };
                 }
             },
             Err(e) => eprintln!("failed to receive message: {}", e),
