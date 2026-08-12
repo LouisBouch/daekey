@@ -3,7 +3,7 @@ use std::{
     collections::HashSet,
     error::Error,
     fmt::Display,
-    io::IoSlice,
+    io::{self, IoSlice, Write},
     marker::PhantomData,
     os::{
         fd::{AsRawFd, FromRawFd, IntoRawFd, RawFd},
@@ -141,57 +141,63 @@ pub fn launch(mut binder: Binder) {
         .build()
         .expect("thread pool should have been initialized");
     // Listen to input.
-    thread::spawn(move || {
-        loop {
-            let key_event_res = input_socket.receive();
-            let key_event: Keybind = match key_event_res {
-                Ok(v) => v,
-                Err(e) => match e {
-                    postcard::Error::DeserializeUnexpectedEnd => {
-                        eprintln!("child process died, aborting: '{e}'");
-                        std::process::exit(1);
+    {
+        let mut input_socket = input_socket.try_clone().expect("should be able to clone the [`WrappedSocket`]");
+        thread::spawn(move || {
+            loop {
+                let key_event_res = input_socket.receive();
+                let key_event: Keybind = match key_event_res {
+                    Ok(v) => v,
+                    Err(e) => match e {
+                        postcard::Error::DeserializeUnexpectedEnd => {
+                            eprintln!("child process died, aborting: '{e}'");
+                            std::process::exit(1);
+                        }
+                        _ => {
+                            eprintln!(
+                                "unexpected error, could not read from socket, aborting: '{e}'"
+                            );
+                            std::process::exit(1);
+                        }
+                    },
+                };
+                let Some(closure) = binder.bindings().get(&key_event).cloned() else {
+                    if key_event == binder.toggle_bindings_key() {
+                        binder.set_paused(!binder.paused());
+                        if binder.paused() {
+                            let mut new_keybinds = HashSet::new();
+                            new_keybinds.insert(binder.toggle_bindings_key());
+                            new_keybinds.insert(binder.exit_key());
+                            input_socket
+                                .send(&MsgToInput::ChangeBindings(new_keybinds))
+                                .expect("postcard should be able to serialize");
+                        } else {
+                            input_socket
+                                .send(&MsgToInput::ChangeBindings(keybinds.clone()))
+                                .expect("postcard should be able to serialize");
+                        }
+                        continue;
+                    } else if key_event == binder.exit_key() {
+                        println!("Process terminated by user");
+                        // TODO: Exit more gracefully.
+                        std::process::exit(0);
                     }
-                    _ => {
-                        eprintln!("unexpected error, could not read from socket, aborting: '{e}'");
-                        std::process::exit(1);
+                    eprintln!("key received from input is not bound: '{key_event:?}'");
+                    break;
+                };
+                // Spawn closure with an [`ApiHolder`].
+                match api_instances.lock().expect("should yield lock").pop() {
+                    Some(api) => {
+                        let api_holder = ApiHolder::new(api, api_instances.clone());
+                        pool.spawn(move || closure(&api_holder));
                     }
-                },
-            };
-            let Some(closure) = binder.bindings().get(&key_event).cloned() else {
-                if key_event == binder.toggle_bindings_key() {
-                    binder.set_paused(!binder.paused());
-                    if binder.paused() {
-                        let mut new_keybinds = HashSet::new();
-                        new_keybinds.insert(binder.toggle_bindings_key());
-                        new_keybinds.insert(binder.exit_key());
-                        input_socket
-                            .send(&MsgToInput::ChangeBindings(new_keybinds))
-                            .expect("postcard should be able to serialize");
-                    } else {
-                        input_socket
-                            .send(&MsgToInput::ChangeBindings(keybinds.clone()))
-                            .expect("postcard should be able to serialize");
-                    }
-                    continue;
-                } else if key_event == binder.exit_key() {
-                    println!("Process terminated by user");
-                    // TODO: Exit more gracefully.
-                    std::process::exit(0);
+                    None => println!("Not enough sockets/threads, skipping key..."),
                 }
-                eprintln!("key received from input is not bound: '{key_event:?}'");
-                break;
-            };
-            // Spawn closure with an [`ApiHolder`].
-            match api_instances.lock().expect("should yield lock").pop() {
-                Some(api) => {
-                    let api_holder = ApiHolder::new(api, api_instances.clone());
-                    pool.spawn(move || closure(&api_holder));
-                }
-                None => println!("Not enough sockets/threads, skipping key..."),
             }
-        }
-    });
+        });
+    }
     // Listen for compositor updates.
+    let exp = "should be able to send message to the child process";
     loop {
         match upd_rec.recv() {
             Ok(v) => match v {
@@ -201,7 +207,13 @@ pub fn launch(mut binder: Binder) {
                     .send(&MsgToUInput::UpdateScreenSpace(ScreenSpace::from_monitors(
                         &screen_infos,
                     )))
-                    .expect("should be able to send message to the child process"),
+                    .expect(exp),
+                compositor_interface::compositor_client::CompUpdate::PointersChanged => {
+                    input_socket.send(&MsgToInput::PointersChanged).expect(exp)
+                }
+                compositor_interface::compositor_client::CompUpdate::KeyboardsChanged => {
+                    input_socket.send(&MsgToInput::KeyboardChanged).expect(exp)
+                }
             },
             Err(e) => {
                 eprintln!("Error while receiving message from compositor: {e}");
@@ -308,32 +320,54 @@ impl SetupContext {
 pub struct WrappedSocket<S: Serialize, R: DeserializeOwned> {
     /// The socket the communication will be done over.
     socket: UnixStream,
+    /// Mutex used when writing to socket.
+    write_mutex: Arc<Mutex<()>>,
+    /// Mutex used when reading socket data.
+    read_mutex: Arc<Mutex<()>>,
     /// Buffer for the receiver.
     buffer: Vec<u8>,
     /// The struct is required to hold the struct somewhere, so store them here.
     _t: PhantomData<(S, R)>,
 }
-
 impl<S: Serialize, R: DeserializeOwned> WrappedSocket<S, R> {
     pub fn new(socket: UnixStream, buffer_size: usize) -> Self {
         WrappedSocket {
             socket,
+            write_mutex: Default::default(),
+            read_mutex: Default::default(),
             buffer: vec![0u8; buffer_size],
             _t: PhantomData,
         }
     }
     /// Send a message through the socket.
     pub fn send(&self, msg: &S) -> postcard::Result<()> {
-        postcard::to_io(&msg, &self.socket)?;
+        let v = postcard::to_allocvec(&msg)?;
+        {
+            let _lock = self.write_mutex.lock();
+            (&self.socket)
+                .write_all(&v)
+                .map_err(|_| postcard::Error::SerializeBufferFull)?;
+        }
         Ok(())
     }
     /// Waits for a message from the other end of the socket.
     pub fn receive(&mut self) -> postcard::Result<R> {
+        let _lock = self.read_mutex.lock();
         Ok(postcard::from_io((&self.socket, &mut self.buffer))?.0)
     }
     // Extract the raw file descriptor.
     pub fn as_raw_fd(&self) -> RawFd {
         self.socket.as_raw_fd()
+    }
+    /// Try cloning the [`WrappedSocket`].
+    pub fn try_clone(&self) -> io::Result<Self> {
+        Ok(WrappedSocket {
+            socket: self.socket.try_clone()?,
+            write_mutex: self.write_mutex.clone(),
+            read_mutex: self.read_mutex.clone(),
+            buffer: vec![0u8; self.buffer.len()],
+            _t: PhantomData,
+        })
     }
 }
 #[doc(hidden)]

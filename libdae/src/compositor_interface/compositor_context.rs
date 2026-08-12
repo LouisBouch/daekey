@@ -2,7 +2,7 @@ use smithay_client_toolkit::{
     compositor::CompositorState, output::OutputState, registry::RegistryState, seat::SeatState,
     shell::wlr_layer::LayerShell, shm::Shm,
 };
-use wayland_client::{Connection, protocol::wl_pointer};
+use wayland_client::{Connection, protocol::{wl_keyboard, wl_pointer}};
 use wayland_protocols_wlr::virtual_pointer::v1::client::zwlr_virtual_pointer_v1::ZwlrVirtualPointerV1;
 
 
@@ -16,6 +16,7 @@ pub(crate) struct CompositorContext {
     pub(crate) layer_shell: LayerShell,
     pub(crate) shm: Shm,
     pub(crate) pointer: Option<wl_pointer::WlPointer>,
+    pub(crate) keyboard: Option<wl_keyboard::WlKeyboard>,
     pub(crate) v_pointer: ZwlrVirtualPointerV1,
 }
 

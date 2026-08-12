@@ -5,6 +5,7 @@ use std::num::NonZeroU32;
 
 use crossbeam_channel::Sender;
 use smithay_client_toolkit::reexports::calloop::EventLoop;
+use smithay_client_toolkit::seat::keyboard::KeyboardHandler;
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
     delegate_registry,
@@ -41,6 +42,10 @@ use crate::compositor_interface::{CursorFetchErr, CursorFetchErrCtx, Point, Scre
 pub(crate) enum CompUpdate {
     /// The layout of the output screens changed.
     ScreenLayoutChanged(Vec<ScreenInfo>),
+    /// The was an update with the pointers.
+    PointersChanged,
+    /// The was an update with the keyboards.
+    KeyboardsChanged,
 }
 
 #[derive(Debug)]
@@ -119,6 +124,7 @@ impl CompositorClient {
             layer_shell: LayerShell::bind(&globals, &qh)?,
             shm,
             pointer: None,
+            keyboard: None,
             v_pointer,
         };
         let event_loop = EventLoop::try_new()?;
@@ -174,6 +180,30 @@ impl CompositorClient {
             screen_info.push(shell_layer.screen_info);
         }
         screen_info
+    }
+    /// Syncs the compositor outputs with the client's and the rest of the app.
+    pub(crate) fn sync_outputs(&mut self, qh: &QueueHandle<Self>) {
+        if let Err(e) = self.initialize_layers(&qh) {
+            eprintln!("Could not initialize layers: {e}");
+        }
+        if let Err(e) = self
+            .update_channel
+            .send(CompUpdate::ScreenLayoutChanged(self.screen_info()))
+        {
+            eprintln!("Failed to send updated screen info: {e}");
+        }
+    }
+    /// Sync the compositor capabilities with the rest of the app.
+    pub(crate) fn sync_capabilities(&self, capability: Capability) {
+        let update = match capability {
+            Capability::Keyboard => CompUpdate::KeyboardsChanged,
+            Capability::Pointer => CompUpdate::PointersChanged,
+            // Nothing to do if not a keybaord or mouse.
+            _ => return,
+        };
+        if let Err(e) = self.update_channel.send(update) {
+            eprintln!("Failed to send updated screen info: {e}");
+        }
     }
 }
 // Used to allow region creation.
@@ -253,7 +283,6 @@ impl Dispatch<WlCallback, CallbackReason> for CompositorClient {
         }
     }
 }
-// TODO: Add back the input device listeners and notify input of it.
 
 // In order to use OutputDelegate, we must implement this trait to indicate when something has happened to an
 // output and to provide an instance of the output state to the delegate when dispatching events.
@@ -274,15 +303,7 @@ impl OutputHandler for CompositorClient {
         qh: &QueueHandle<Self>,
         _output: wl_output::WlOutput,
     ) {
-        if let Err(e) = self.initialize_layers(&qh) {
-            eprintln!("Could not initialize layers: {e}");
-        }
-        if let Err(e) = self
-            .update_channel
-            .send(CompUpdate::ScreenLayoutChanged(self.screen_info()))
-        {
-            eprintln!("Failed to send updated screen info: {e}");
-        }
+        self.sync_outputs(qh);
     }
 
     fn update_output(
@@ -291,15 +312,7 @@ impl OutputHandler for CompositorClient {
         qh: &QueueHandle<Self>,
         _output: wl_output::WlOutput,
     ) {
-        if let Err(e) = self.initialize_layers(&qh) {
-            eprintln!("Could not initialize layers: {e}");
-        }
-        if let Err(e) = self
-            .update_channel
-            .send(CompUpdate::ScreenLayoutChanged(self.screen_info()))
-        {
-            eprintln!("Failed to send updated screen info: {e}");
-        }
+        self.sync_outputs(qh);
     }
 
     fn output_destroyed(
@@ -308,20 +321,77 @@ impl OutputHandler for CompositorClient {
         qh: &QueueHandle<Self>,
         _output: wl_output::WlOutput,
     ) {
-        if let Err(e) = self.initialize_layers(&qh) {
-            eprintln!("Could not initialize layers: {e}");
-        }
-        if let Err(e) = self
-            .update_channel
-            .send(CompUpdate::ScreenLayoutChanged(self.screen_info()))
-        {
-            eprintln!("Failed to send updated screen info: {e}");
-        }
+        self.sync_outputs(qh);
     }
 }
 
 smithay_client_toolkit::delegate_dispatch2!(CompositorClient);
 
+impl KeyboardHandler for CompositorClient {
+    fn enter(
+        &mut self,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+        _keyboard: &wayland_client::protocol::wl_keyboard::WlKeyboard,
+        _surface: &wl_surface::WlSurface,
+        _serial: u32,
+        _raw: &[u32],
+        _keysyms: &[smithay_client_toolkit::seat::keyboard::Keysym],
+    ) {
+    }
+
+    fn leave(
+        &mut self,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+        _keyboard: &wayland_client::protocol::wl_keyboard::WlKeyboard,
+        _surface: &wl_surface::WlSurface,
+        _serial: u32,
+    ) {
+    }
+
+    fn press_key(
+        &mut self,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+        _keyboard: &wayland_client::protocol::wl_keyboard::WlKeyboard,
+        _serial: u32,
+        _event: smithay_client_toolkit::seat::keyboard::KeyEvent,
+    ) {
+    }
+
+    fn repeat_key(
+        &mut self,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+        _keyboard: &wayland_client::protocol::wl_keyboard::WlKeyboard,
+        _serial: u32,
+        _event: smithay_client_toolkit::seat::keyboard::KeyEvent,
+    ) {
+    }
+
+    fn release_key(
+        &mut self,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+        _keyboard: &wayland_client::protocol::wl_keyboard::WlKeyboard,
+        _serial: u32,
+        _event: smithay_client_toolkit::seat::keyboard::KeyEvent,
+    ) {
+    }
+
+    fn update_modifiers(
+        &mut self,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+        _keyboard: &wayland_client::protocol::wl_keyboard::WlKeyboard,
+        _serial: u32,
+        _modifiers: smithay_client_toolkit::seat::keyboard::Modifiers,
+        _raw_modifiers: smithay_client_toolkit::seat::keyboard::RawModifiers,
+        _layout: u32,
+    ) {
+    }
+}
 impl PointerHandler for CompositorClient {
     fn pointer_frame(
         &mut self,
@@ -367,6 +437,7 @@ impl PointerHandler for CompositorClient {
     }
 }
 
+// TODO: Add back the input device listeners and notify input of it.
 impl SeatHandler for CompositorClient {
     fn seat_state(&mut self) -> &mut SeatState {
         &mut self.cmp_ctx.seat_state
@@ -390,6 +461,16 @@ impl SeatHandler for CompositorClient {
                 .expect("Failed to create pointer");
             self.cmp_ctx.pointer = Some(pointer);
         }
+        if capability == Capability::Keyboard && self.cmp_ctx.keyboard.is_none() {
+            println!("Set keyboard capability");
+            let keyboard = self
+                .cmp_ctx
+                .seat_state
+                .get_keyboard(qh, &seat, None)
+                .expect("Failed to create keyboard");
+            self.cmp_ctx.keyboard = Some(keyboard);
+        }
+        self.sync_capabilities(capability);
     }
 
     fn remove_capability(
@@ -403,6 +484,11 @@ impl SeatHandler for CompositorClient {
             println!("Unset pointer capability");
             self.cmp_ctx.pointer.take().unwrap().release();
         }
+        if capability == Capability::Keyboard && self.cmp_ctx.keyboard.is_some() {
+            println!("Unset keyboard capability");
+            self.cmp_ctx.keyboard.take().unwrap().release();
+        }
+        self.sync_capabilities(capability);
     }
 
     fn remove_seat(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_seat::WlSeat) {}

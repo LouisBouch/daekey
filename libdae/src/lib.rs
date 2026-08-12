@@ -13,7 +13,6 @@ pub use evdev::{RelativeAxisCode, AbsoluteAxisCode};
 pub use message::AppliedModifiers;
 pub type Pixel = i32;
 // TODO: launch throuhg binary so that i can run the binary in the background.
-// TODO: adapt when second screen is connected/disconnected.
 // TODO: Create macro maker. Fetches initiale absolute cursor position on a key press and then
 // record everything that is done. But before doing it, clean up the code a bit.
 

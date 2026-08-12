@@ -185,6 +185,13 @@ fn input_loop(
                         message::MsgToInput::ChangeBindings(new_bindings) => {
                             bindings = new_bindings
                         }
+                        // TODO: Find way to reorganize things to allow updating devices.
+                        // Also, maybe put modifiers in struct that wraps [`DevType`] name DevInfo.
+                        // Copy over DevInfo if new Device has same physical_path as old one.
+                        // They will probably also point to the same function given that it
+                        // refetches ALL devices.
+                        message::MsgToInput::PointersChanged => todo!(),
+                        message::MsgToInput::KeyboardChanged => todo!(),
                     }
                 }
             }

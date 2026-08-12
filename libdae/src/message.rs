@@ -2,11 +2,14 @@
 
 use std::collections::HashSet;
 
-use crate::{compositor_interface::ScreenSpace, input::{KeyAction, Keybind, MouseAction}, modifiers::Modifiers};
+use crate::{
+    compositor_interface::ScreenSpace,
+    input::{KeyAction, Keybind, MouseAction},
+    modifiers::Modifiers,
+};
 use crossbeam_channel::Sender;
 use evdev::KeyCode;
 use serde::{Deserialize, Serialize};
-
 
 #[derive(Serialize, Deserialize, Debug)]
 /// Message that comes from the main unprivileged process to the privileged one.
@@ -15,8 +18,7 @@ pub enum MsgToPriv {
 }
 /// Message that comes from the child privileged process to the unprivileged core.
 #[derive(Serialize, Deserialize, Debug)]
-pub enum MsgToCore {
-}
+pub enum MsgToCore {}
 /// Message sent by closure to privileged sockets.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum MsgToWorker {
@@ -48,12 +50,16 @@ pub enum MsgToUInput {
 /// Mesasge to Input thread.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum MsgToInput {
-    ChangeBindings(HashSet<Keybind>)
+    /// Ask input to change the bindings.
+    ChangeBindings(HashSet<Keybind>),
+    /// Tell Input thread the pointer devices have changed.
+    PointersChanged,
+    /// Tell Input thread the keyboard devices have changed.
+    KeyboardChanged,
 }
 
 /// Message sent by privileged socket to closure.
-pub enum WorkerReply {
-}
+pub enum WorkerReply {}
 
 /// Sends messages through channels. Assumes receiving channels are always connected.
 ///
