@@ -8,18 +8,24 @@ use evdev::{
 };
 
 use libdae::{
-    app::UInputPrivSocket, compositor_interface::ScreenSpace, input::KeyState, message, modifiers::{self, Modifiers}
+    app::UInputPrivSocket,
+    compositor_interface::ScreenSpace,
+    input::KeyState,
+    message,
+    modifiers::{self, Modifiers},
 };
 
 pub struct UInputShare {
-    handle: JoinHandle<()>,
+    handles: [JoinHandle<()>; 2],
     uinput_sender: Sender<message::MsgToUInput>,
 }
 impl UInputShare {
     pub fn join(self) {
-        self.handle
-            .join()
-            .expect("input thread should join successfully");
+        for handle in self.handles {
+            handle
+                .join()
+                .expect("input thread should join successfully");
+        }
     }
     pub fn uinput_sender(&self) -> &crossbeam_channel::Sender<message::MsgToUInput> {
         &self.uinput_sender
@@ -75,8 +81,7 @@ fn setup_virtual_mouse_absolute(screen_space: &ScreenSpace) -> std::io::Result<V
 }
 
 pub fn launch_uinput_listener(
-    // TODO: Hook up the socket on its own thread and send messages to uinput_sender when erquired.
-    uinput_socket: UInputPrivSocket,
+    mut uinput_socket: UInputPrivSocket,
     screen_space: &ScreenSpace,
 ) -> std::io::Result<UInputShare> {
     // TODO: Use functionalities instead of hard coded devices. That way, the virtual mouse can be
@@ -86,11 +91,23 @@ pub fn launch_uinput_listener(
     let virt_mouse_abs = setup_virtual_mouse_absolute(screen_space)?;
 
     let (sender, receiver) = crossbeam_channel::unbounded::<message::MsgToUInput>();
+    // Listen for updates on the socket and send them to the message loop.
+    let update_handle = {
+        let sender = sender.clone();
+        std::thread::spawn(move || {
+            loop {
+                match uinput_socket.receive() {
+                    Ok(v) => sender.send(v).expect("other end of channel should be open"),
+                    Err(e) => eprintln!("Error while deserializing: {e}"),
+                }
+            }
+        })
+    };
     let handle = std::thread::spawn(|| {
         uinput_loop(virt_kbd, virt_mouse_rel, virt_mouse_abs, receiver);
     });
     Ok(UInputShare {
-        handle,
+        handles: [handle, update_handle],
         uinput_sender: sender,
     })
 }

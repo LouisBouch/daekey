@@ -79,7 +79,6 @@ pub fn launch(mut binder: Binder) {
     let (socket_core_end, socket_priv_end) = std::os::unix::net::UnixStream::pair().unwrap();
     let mut child = start_priv_process(socket_priv_end);
 
-    // TODO: Use upd_rec to listen for udpates from compositor.
     let (cmp_intf, upd_rec) = CompositorInterface::init();
     //TODO: if no screen info, just disable some functionalities.
     let screen_info = cmp_intf
@@ -192,6 +191,26 @@ pub fn launch(mut binder: Binder) {
             }
         }
     });
+    // Listen for compositor updates.
+    loop {
+        match upd_rec.recv() {
+            Ok(v) => match v {
+                compositor_interface::compositor_client::CompUpdate::ScreenLayoutChanged(
+                    screen_infos,
+                ) => uinput_socket
+                    .send(&MsgToUInput::UpdateScreenSpace(ScreenSpace::from_monitors(
+                        &screen_infos,
+                    )))
+                    .expect("should be able to send message to the child process"),
+            },
+            Err(e) => {
+                eprintln!("Error while receiving message from compositor: {e}");
+                break;
+            }
+        }
+    }
+    // Listen for updates from the compositor.
+
     child.wait().unwrap();
 }
 /// Create and share sockets that the privileged process will use.

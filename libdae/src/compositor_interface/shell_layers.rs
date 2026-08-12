@@ -35,15 +35,6 @@ impl ShellLayer {
             .ok_or(Box::<dyn Error>::from(format!(
                 "No info available for output: {output:?}"
             )))?;
-        match info.logical_position {
-            Some(v) => {
-                println!("name: {:?}", info.name);
-                dbg!(v);
-            }
-            None => {
-                dbg!("no vlaue");
-            }
-        };
         let location = info
             .logical_position
             .ok_or_else(|| format!("monitor {info:?} has no logical position"))?;

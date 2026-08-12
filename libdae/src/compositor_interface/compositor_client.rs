@@ -253,6 +253,7 @@ impl Dispatch<WlCallback, CallbackReason> for CompositorClient {
         }
     }
 }
+// TODO: Add back the input device listeners and notify input of it.
 
 // In order to use OutputDelegate, we must implement this trait to indicate when something has happened to an
 // output and to provide an instance of the output state to the delegate when dispatching events.
@@ -273,7 +274,6 @@ impl OutputHandler for CompositorClient {
         qh: &QueueHandle<Self>,
         _output: wl_output::WlOutput,
     ) {
-        println!("new");
         if let Err(e) = self.initialize_layers(&qh) {
             eprintln!("Could not initialize layers: {e}");
         }
@@ -291,7 +291,6 @@ impl OutputHandler for CompositorClient {
         qh: &QueueHandle<Self>,
         _output: wl_output::WlOutput,
     ) {
-        println!("update");
         if let Err(e) = self.initialize_layers(&qh) {
             eprintln!("Could not initialize layers: {e}");
         }
@@ -309,7 +308,6 @@ impl OutputHandler for CompositorClient {
         qh: &QueueHandle<Self>,
         _output: wl_output::WlOutput,
     ) {
-        println!("destroy");
         if let Err(e) = self.initialize_layers(&qh) {
             eprintln!("Could not initialize layers: {e}");
         }
