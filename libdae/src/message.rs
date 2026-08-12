@@ -18,12 +18,12 @@ pub enum MsgToPriv {
 pub enum MsgToCore {
 }
 /// Message sent by closure to privileged sockets.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum MsgToWorker {
     UInputRequest(MsgToUInput),
 }
 /// Decides how the modifiers are applied.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum AppliedModifiers {
     /// Use the modifiers currently active.
     Current,
@@ -31,7 +31,7 @@ pub enum AppliedModifiers {
     Exact(Modifiers),
 }
 /// Mesasge to UInput thread.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum MsgToUInput {
     /// Send a list of keybaord actions.
     SendKeyActions(Vec<KeyAction>),
@@ -46,7 +46,7 @@ pub enum MsgToUInput {
 }
 
 /// Mesasge to Input thread.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum MsgToInput {
     ChangeBindings(HashSet<Keybind>)
 }

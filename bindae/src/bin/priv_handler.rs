@@ -1,6 +1,9 @@
 mod manager;
 use crossbeam_channel::Sender;
-use libdae::message;
+use libdae::{
+    app::{SocketType, WorkerPrivSocket, WrappedSocketBag},
+    message,
+};
 use manager::{input_manager, uinput_manager};
 use std::{
     io::IoSliceMut,
@@ -28,10 +31,31 @@ impl PrivHandler {
         // Ignore the socket and keep using stdin.
         std::mem::forget(socket_stream);
 
-        let (input_socket, worker_sockets) = Self::get_sockets(ctx.nb_threads()).unwrap();
+        let mut input_socket = None;
+        let mut uinput_socket = None;
+        let mut worker_sockets = Vec::new();
+        let sockets =
+            Self::get_sockets(ctx.nb_threads()).expect("sockets should be read successfully");
+        for socket in sockets {
+            match socket {
+                WrappedSocketBag::WorkerPriv(wrapped_socket) => worker_sockets.push(wrapped_socket),
+                WrappedSocketBag::InputPriv(wrapped_socket) => input_socket = Some(wrapped_socket),
+                WrappedSocketBag::UInputPriv(wrapped_socket) => {
+                    uinput_socket = Some(wrapped_socket)
+                }
+                _ => eprintln!(
+                    "There should not be any core socket in the privileged process: {socket:?}"
+                ),
+            }
+        }
+        let (input_socket, uinput_socket) = (
+            input_socket.expect("input_socket should be initialized"),
+            uinput_socket.expect("uinput_socket should be initialized"),
+        );
 
-        let uinput_share = uinput_manager::launch_uinput_listener(ctx.screen_space())
-            .expect("uinput manager should launch successfully");
+        let uinput_share =
+            uinput_manager::launch_uinput_listener(uinput_socket, ctx.screen_space())
+                .expect("uinput manager should launch successfully");
         let input_share = input_manager::launch_input_listener(
             input_socket,
             uinput_share.uinput_sender().clone(),
@@ -65,9 +89,6 @@ impl PrivHandler {
             }
         });
 
-        // TODO: Move the Input socket here instead and communicate to input and uinput through
-        // crossbeam messages only.
-        // This will allow a single socket usage and inputs/binding changes will come through here.
         input_share.join();
         uinput_share.join();
         for (i, handle) in handles.into_iter().enumerate() {
@@ -78,18 +99,17 @@ impl PrivHandler {
         }
     }
     fn launch_workers(
-        worker_sockets: Vec<UnixStream>,
+        worker_sockets: Vec<WorkerPrivSocket>,
         uinput_sender: &Sender<message::MsgToUInput>,
     ) -> Vec<JoinHandle<()>> {
         let mut handlers = Vec::new();
-        for (i, socket) in worker_sockets.into_iter().enumerate() {
+        for (i, mut socket) in worker_sockets.into_iter().enumerate() {
             let uinput_sender = uinput_sender.clone();
             let handle = thread::spawn(move || {
                 loop {
-                    let mut buf = [0; 256];
-                    let mes_res = postcard::from_io((&socket, &mut buf));
+                    let mes_res = socket.receive();
                     let mes: message::MsgToWorker = match mes_res {
-                        Ok(v) => v.0,
+                        Ok(v) => v,
                         Err(e) => match e {
                             postcard::Error::DeserializeUnexpectedEnd => {
                                 eprintln!("parent process died, terminating worker {i} : '{e}'");
@@ -115,33 +135,42 @@ impl PrivHandler {
         handlers
     }
 
-    fn get_sockets(nb_sockets: u16) -> std::io::Result<(UnixStream, Vec<UnixStream>)> {
+    fn get_sockets(nb_workers: u16) -> std::io::Result<Vec<WrappedSocketBag>> {
         let mut sockets = Vec::new();
-        // Use +1 here to access input socket.
-        for _ in 0..(nb_sockets + 1) {
-            let mut payload = [0u8];
-            let mut iov = [IoSliceMut::new(&mut payload)];
-            let mut cmsg_buffer = nix::cmsg_space!([std::os::unix::io::RawFd; 1]);
-            let msg = recvmsg::<()>(
-                std::io::stdin().as_raw_fd(),
-                &mut iov,
-                Some(&mut cmsg_buffer),
-                MsgFlags::empty(),
-            )?;
-            for cmsg in msg.cmsgs()? {
-                if let ControlMessageOwned::ScmRights(fds) = cmsg {
-                    for fd in fds {
-                        unsafe {
-                            sockets.push(UnixStream::from_raw_fd(fd));
-                        }
+        // Get worker sockets
+        for _ in 0..(nb_workers) {
+            sockets.push(Self::get_socket()?);
+        }
+        // Get input socket.
+        sockets.push(Self::get_socket()?);
+        // Get uinput socket.
+        sockets.push(Self::get_socket()?);
+        Ok(sockets)
+    }
+    fn get_socket() -> std::io::Result<WrappedSocketBag> {
+        let mut payload = [0u8];
+        let mut iov = [IoSliceMut::new(&mut payload)];
+        let mut cmsg_buffer = nix::cmsg_space!([std::os::unix::io::RawFd; 1]);
+        let msg = recvmsg::<()>(
+            std::io::stdin().as_raw_fd(),
+            &mut iov,
+            Some(&mut cmsg_buffer),
+            MsgFlags::empty(),
+        )?;
+        let mut socket = None;
+        for cmsg in msg.cmsgs()? {
+            if let ControlMessageOwned::ScmRights(fds) = cmsg {
+                for fd in fds {
+                    unsafe {
+                        socket = Some(UnixStream::from_raw_fd(fd));
                     }
                 }
             }
         }
-        Ok((
-            sockets.pop().expect("there should be at least one socket"),
-            sockets,
-        ))
+        let socket = socket.expect("socket should have been obtained");
+        let st = SocketType::try_from(payload[0] as i8)
+            .expect("integer should convert ot valid [`SocketType`]");
+        Ok(WrappedSocketBag::from_socket_type(socket, st, 256))
     }
 }
 fn main() {

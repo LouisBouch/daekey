@@ -1,13 +1,13 @@
 //! Holds api logic for the user to request commands from the privileged process.
 use std::{
     ops::Deref,
-    os::unix::net::UnixStream,
     sync::{Arc, Mutex},
 };
 
 use evdev::KeyCode;
 
 use crate::{
+    app::WorkerCoreSocket,
     compositor_interface::{CompReqErr, CompositorInterface, Point, ScreenInfo},
     input::{KeyAction, MouseAction},
     message::{self, AppliedModifiers, MsgToUInput},
@@ -15,12 +15,12 @@ use crate::{
 
 /// Acts as an api for the user to request command from the privileged process.
 pub struct Api {
-    socket_to_worker: Option<UnixStream>,
+    socket_to_worker: Option<WorkerCoreSocket>,
     cmp_intf: CompositorInterface,
 }
 impl Api {
     // crossbeam channel to send message to a thread that will them pipe to the privileged process.
-    pub(crate) fn new(socket_to_worker: UnixStream, cmp_intf: CompositorInterface) -> Self {
+    pub(crate) fn new(socket_to_worker: WorkerCoreSocket, cmp_intf: CompositorInterface) -> Self {
         Api {
             socket_to_worker: Some(socket_to_worker),
             cmp_intf,
@@ -60,7 +60,8 @@ impl Api {
             .socket_to_worker
             .as_ref()
             .expect("the bridge should have a valid socket");
-        postcard::to_io(&message::MsgToWorker::UInputRequest(mes), socket)
+        socket
+            .send(&message::MsgToWorker::UInputRequest(mes))
             .expect("socket should successfully send message");
     }
 }

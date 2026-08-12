@@ -1,5 +1,5 @@
 //! Handles uinput and virtual device.
-use std::{thread::JoinHandle, time::Instant};
+use std::thread::JoinHandle;
 
 use crossbeam_channel::{Receiver, Sender};
 use evdev::{
@@ -8,10 +8,7 @@ use evdev::{
 };
 
 use libdae::{
-    compositor_interface::ScreenSpace,
-    input::KeyState,
-    message,
-    modifiers::{self, Modifiers},
+    app::UInputPrivSocket, compositor_interface::ScreenSpace, input::KeyState, message, modifiers::{self, Modifiers}
 };
 
 pub struct UInputShare {
@@ -77,7 +74,11 @@ fn setup_virtual_mouse_absolute(screen_space: &ScreenSpace) -> std::io::Result<V
     Ok(virt_mouse_abs)
 }
 
-pub fn launch_uinput_listener(screen_space: &ScreenSpace) -> std::io::Result<UInputShare> {
+pub fn launch_uinput_listener(
+    // TODO: Hook up the socket on its own thread and send messages to uinput_sender when erquired.
+    uinput_socket: UInputPrivSocket,
+    screen_space: &ScreenSpace,
+) -> std::io::Result<UInputShare> {
     // TODO: Use functionalities instead of hard coded devices. That way, the virtual mouse can be
     // ignored if the requirements for it are not met.
     let virt_kbd = setup_virtual_keyboard()?;

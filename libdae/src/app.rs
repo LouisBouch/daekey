@@ -4,8 +4,9 @@ use std::{
     error::Error,
     fmt::Display,
     io::IoSlice,
+    marker::PhantomData,
     os::{
-        fd::{AsRawFd, FromRawFd, IntoRawFd},
+        fd::{AsRawFd, FromRawFd, IntoRawFd, RawFd},
         unix::net::UnixStream,
     },
     process::{Child, Command, Stdio},
@@ -14,14 +15,14 @@ use std::{
 };
 
 use nix::sys::socket::{ControlMessage, MsgFlags, sendmsg};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
     api::{Api, ApiHolder},
     binder::Binder,
     compositor_interface::{self, CompositorInterface, ScreenSpace},
     input::Keybind,
-    message::MsgToInput,
+    message::{MsgToInput, MsgToUInput, MsgToWorker},
 };
 
 /// Start the privileged process.
@@ -78,6 +79,7 @@ pub fn launch(mut binder: Binder) {
     let (socket_core_end, socket_priv_end) = std::os::unix::net::UnixStream::pair().unwrap();
     let mut child = start_priv_process(socket_priv_end);
 
+    // TODO: Use upd_rec to listen for udpates from compositor.
     let (cmp_intf, upd_rec) = CompositorInterface::init();
     //TODO: if no screen info, just disable some functionalities.
     let screen_info = cmp_intf
@@ -98,10 +100,25 @@ pub fn launch(mut binder: Binder) {
         .0;
 
     // Create sockets and send them over to the child.
-    let (input_socket, closure_sockets) = share_sockets(&socket_core_end, binder.max_threads())
-        .expect("sockets should be created successfully");
+    let mut input_socket = None;
+    let mut uinput_socket = None;
+    let mut worker_sockets = Vec::new();
+    let sockets = share_sockets(&socket_core_end, binder.max_threads())
+        .expect("sockets should be created and sent successfully");
+    for socket in sockets {
+        match socket {
+            WrappedSocketBag::WorkerCore(wrapped_socket) => worker_sockets.push(wrapped_socket),
+            WrappedSocketBag::InputCore(wrapped_socket) => input_socket = Some(wrapped_socket),
+            WrappedSocketBag::UInputCore(wrapped_socket) => uinput_socket = Some(wrapped_socket),
+            _ => eprintln!("There should not be any child socket in the core: {socket:?}"),
+        }
+    }
+    let (mut input_socket, uinput_socket) = (
+        input_socket.expect("input_socket should be initialized"),
+        uinput_socket.expect("uinput_socket should be initialized"),
+    );
     let api_instances: Arc<Mutex<Vec<Api>>> = Arc::new(Mutex::new(Vec::new()));
-    for socket in closure_sockets {
+    for socket in worker_sockets {
         api_instances
             .lock()
             .expect("mutex should lock")
@@ -115,7 +132,8 @@ pub fn launch(mut binder: Binder) {
     }
     keybinds.insert(binder.toggle_bindings_key());
     keybinds.insert(binder.exit_key());
-    postcard::to_io(&MsgToInput::ChangeBindings(keybinds.clone()), &input_socket)
+    input_socket
+        .send(&MsgToInput::ChangeBindings(keybinds.clone()))
         .expect("postcard should be able to serialize");
 
     // Start thread pool.
@@ -126,10 +144,9 @@ pub fn launch(mut binder: Binder) {
     // Listen to input.
     thread::spawn(move || {
         loop {
-            let mut buf = [0; 256];
-            let key_event_res = postcard::from_io((&input_socket, &mut buf));
+            let key_event_res = input_socket.receive();
             let key_event: Keybind = match key_event_res {
-                Ok(v) => v.0,
+                Ok(v) => v,
                 Err(e) => match e {
                     postcard::Error::DeserializeUnexpectedEnd => {
                         eprintln!("child process died, aborting: '{e}'");
@@ -148,14 +165,13 @@ pub fn launch(mut binder: Binder) {
                         let mut new_keybinds = HashSet::new();
                         new_keybinds.insert(binder.toggle_bindings_key());
                         new_keybinds.insert(binder.exit_key());
-                        postcard::to_io(&MsgToInput::ChangeBindings(new_keybinds), &input_socket)
+                        input_socket
+                            .send(&MsgToInput::ChangeBindings(new_keybinds))
                             .expect("postcard should be able to serialize");
                     } else {
-                        postcard::to_io(
-                            &MsgToInput::ChangeBindings(keybinds.clone()),
-                            &input_socket,
-                        )
-                        .expect("postcard should be able to serialize");
+                        input_socket
+                            .send(&MsgToInput::ChangeBindings(keybinds.clone()))
+                            .expect("postcard should be able to serialize");
                     }
                     continue;
                 } else if key_event == binder.exit_key() {
@@ -187,28 +203,64 @@ pub fn launch(mut binder: Binder) {
 fn share_sockets(
     child_stdin: &UnixStream,
     nb_worker_sockets: u16,
-) -> std::io::Result<(UnixStream, Vec<UnixStream>)> {
+) -> std::io::Result<Vec<WrappedSocketBag>> {
     let mut sockets = Vec::new();
-    // Use +1 here to create input socket.
-    for s in 0..(nb_worker_sockets + 1) {
-        let (socket_core, socket_child) = std::os::unix::net::UnixStream::pair()?;
-        let socket_child_fd: std::os::fd::RawFd = socket_child.as_raw_fd();
-        // Send different payload on input socket.
-        let payload = if s == nb_worker_sockets { [1u8] } else { [0u8] };
-        let iov = [IoSlice::new(&payload)];
-        let cmsg = [ControlMessage::ScmRights(&[socket_child_fd])];
-        sendmsg::<()>(
-            child_stdin.as_raw_fd(),
-            &iov,
-            &cmsg,
-            MsgFlags::empty(),
-            None,
-        )?;
-        sockets.push(socket_core);
+    let buffer_size = 256;
+    for _ in 0..(nb_worker_sockets) {
+        sockets.push(send_socket(
+            &child_stdin,
+            SocketType::WorkerCore,
+            SocketType::WorkerPriv,
+            buffer_size,
+        )?);
     }
-    Ok((
-        sockets.pop().expect("there should be at least one socket"),
-        sockets,
+    sockets.push(send_socket(
+        &child_stdin,
+        SocketType::InputCore,
+        SocketType::InputPriv,
+        buffer_size,
+    )?);
+    sockets.push(send_socket(
+        &child_stdin,
+        SocketType::UInputCore,
+        SocketType::UInputPriv,
+        buffer_size,
+    )?);
+    Ok(sockets)
+}
+/// Send a socket over another socket.
+/// # Parameters
+///
+/// * `channel_socket` - The socket over which the new socket will be sent over.
+/// * `socket_type` - The type of socket being sent over. I.e, what it will be used for.
+///
+/// # Return
+///
+/// The end of the socket that can be used to communicate with the sent socket
+///
+fn send_socket(
+    channel_socket: &UnixStream,
+    kept_socket_type: SocketType,
+    sent_socket_type: SocketType,
+    buffer_size: usize,
+) -> std::io::Result<WrappedSocketBag> {
+    let (socket_to_keep, socket_to_send) = std::os::unix::net::UnixStream::pair()?;
+    let socket_child_fd: std::os::fd::RawFd = socket_to_send.as_raw_fd();
+    // Send different payload on input socket.
+    let payload = [sent_socket_type as u8];
+    let iov = [IoSlice::new(&payload)];
+    let cmsg = [ControlMessage::ScmRights(&[socket_child_fd])];
+    sendmsg::<()>(
+        channel_socket.as_raw_fd(),
+        &iov,
+        &cmsg,
+        MsgFlags::empty(),
+        None,
+    )?;
+    Ok(WrappedSocketBag::from_socket_type(
+        socket_to_keep,
+        kept_socket_type,
+        buffer_size,
     ))
 }
 #[doc(hidden)]
@@ -228,35 +280,132 @@ impl SetupContext {
         &self.screen_space
     }
 }
-// TODO: Use socket type to send over sockets with better description instead of relying on indices.
+// TODO: Make a macro to write enums and from_socket_type automatically from a single enum
+// definition.
+// TODO: Figure out what should be doc hidden here.
 #[doc(hidden)]
-#[repr(u8)]
-#[derive(Debug, Clone, Copy)]
-/// Describes what a socket will be used for,
-pub enum SocketType {
-    /// A worker will own this socket.
-    Worker = 0,
-    /// The Input thread will own this socket.
-    Input = 1,
-    /// The UInput thread will own this socket.
-    UInput = 2,
+/// A wrapped [`UnixStream`] to ensure only one type of data can be sent and another received.
+#[derive(Debug)]
+pub struct WrappedSocket<S: Serialize, R: DeserializeOwned> {
+    /// The socket the communication will be done over.
+    socket: UnixStream,
+    /// Buffer for the receiver.
+    buffer: Vec<u8>,
+    /// The struct is required to hold the struct somewhere, so store them here.
+    _t: PhantomData<(S, R)>,
 }
-impl SocketType {
-    pub fn from_u8(v: u8) -> Result<Self, InvalidSocketTypeId> {
-        match v {
-            0 => Ok(SocketType::Worker),
-            1 => Ok(SocketType::Input),
-            2 => Ok(SocketType::UInput),
-            other => Err(InvalidSocketTypeId(other)),
+
+impl<S: Serialize, R: DeserializeOwned> WrappedSocket<S, R> {
+    pub fn new(socket: UnixStream, buffer_size: usize) -> Self {
+        WrappedSocket {
+            socket,
+            buffer: vec![0u8; buffer_size],
+            _t: PhantomData,
         }
+    }
+    /// Send a message through the socket.
+    pub fn send(&self, msg: &S) -> postcard::Result<()> {
+        postcard::to_io(&msg, &self.socket)?;
+        Ok(())
+    }
+    /// Waits for a message from the other end of the socket.
+    pub fn receive(&mut self) -> postcard::Result<R> {
+        Ok(postcard::from_io((&self.socket, &mut self.buffer))?.0)
+    }
+    // Extract the raw file descriptor.
+    pub fn as_raw_fd(&self) -> RawFd {
+        self.socket.as_raw_fd()
     }
 }
 #[doc(hidden)]
+#[repr(i8)]
 #[derive(Debug, Clone, Copy)]
-pub struct InvalidSocketTypeId(u8);
+/// Describes what a socket will be used for,
+pub enum SocketType {
+    /// A worker will own the other side of this socket.
+    WorkerCore = 1,
+    /// The Input thread will own the other side of this this socket.
+    InputCore = 2,
+    /// The UInput thread will own the other side of this this socket.
+    UInputCore = 3,
+
+    /// A worker will own this socket.
+    WorkerPriv = -1,
+    /// The Input thread will own this socket.
+    InputPriv = -2,
+    /// The UInput thread will own this socket.
+    UInputPriv = -3,
+}
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy)]
+pub struct InvalidSocketTypeId(i8);
 impl Error for InvalidSocketTypeId {}
 impl Display for InvalidSocketTypeId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Invalid socket type id: {}", self.0)
+    }
+}
+impl TryFrom<i8> for SocketType {
+    type Error = InvalidSocketTypeId;
+
+    fn try_from(value: i8) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(SocketType::WorkerCore),
+            2 => Ok(SocketType::InputCore),
+            3 => Ok(SocketType::UInputCore),
+            -1 => Ok(SocketType::WorkerPriv),
+            -2 => Ok(SocketType::InputPriv),
+            -3 => Ok(SocketType::UInputPriv),
+            other => Err(InvalidSocketTypeId(other)),
+        }
+    }
+}
+
+pub type WorkerCoreSocket = WrappedSocket<MsgToWorker, ()>;
+pub type InputCoreSocket = WrappedSocket<MsgToInput, Keybind>;
+pub type UInputCoreSocket = WrappedSocket<MsgToUInput, ()>;
+
+pub type WorkerPrivSocket = WrappedSocket<(), MsgToWorker>;
+pub type InputPrivSocket = WrappedSocket<Keybind, MsgToInput>;
+pub type UInputPrivSocket = WrappedSocket<(), MsgToUInput>;
+
+/// Define the possible wrapped sockets given the ['SocketType']s.
+#[derive(Debug)]
+pub enum WrappedSocketBag {
+    WorkerCore(WorkerCoreSocket),
+    InputCore(InputCoreSocket),
+    UInputCore(UInputCoreSocket),
+
+    WorkerPriv(WorkerPrivSocket),
+    InputPriv(InputPrivSocket),
+    UInputPriv(UInputPrivSocket),
+}
+impl WrappedSocketBag {
+    /// Automatically create a wrapped socket from a [`SocketType`].
+    pub fn from_socket_type(
+        socket: UnixStream,
+        socket_type: SocketType,
+        buffer_size: usize,
+    ) -> WrappedSocketBag {
+        match socket_type {
+            SocketType::WorkerCore => {
+                WrappedSocketBag::WorkerCore(WorkerCoreSocket::new(socket, buffer_size))
+            }
+            SocketType::InputCore => {
+                WrappedSocketBag::InputCore(InputCoreSocket::new(socket, buffer_size))
+            }
+            SocketType::UInputCore => {
+                WrappedSocketBag::UInputCore(UInputCoreSocket::new(socket, buffer_size))
+            }
+            SocketType::WorkerPriv => {
+                WrappedSocketBag::WorkerPriv(WorkerPrivSocket::new(socket, buffer_size))
+            }
+            SocketType::InputPriv => {
+                WrappedSocketBag::InputPriv(InputPrivSocket::new(socket, buffer_size))
+            }
+            SocketType::UInputPriv => {
+                WrappedSocketBag::UInputPriv(UInputPrivSocket::new(socket, buffer_size))
+            }
+        }
     }
 }

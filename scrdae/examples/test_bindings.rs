@@ -1,11 +1,14 @@
 use std::{
     sync::{Arc, atomic::AtomicBool},
     thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use libdae::{
-    AbsoluteAxisCode, AppliedModifiers, KeyCode, RelativeAxisCode, app, binder::Binder, input::{KeyAction, KeyState, Keybind, MouseAbsAction, MouseAction, MouseRelAction}, modifiers::{self}
+    AbsoluteAxisCode, AppliedModifiers, KeyCode, RelativeAxisCode, app,
+    binder::Binder,
+    input::{KeyAction, KeyState, Keybind, MouseAbsAction, MouseAction, MouseRelAction},
+    modifiers::{self},
 };
 
 fn main() {
@@ -36,10 +39,7 @@ fn main() {
         Keybind::new(KeyCode::KEY_EQUAL, KeyState::Pressed, modifiers::NONE),
         {
             move |api| {
-                api.send_key_tap(
-                    KeyCode::KEY_EQUAL,
-                    AppliedModifiers::Exact(modifiers::NONE),
-                );
+                api.send_key_tap(KeyCode::KEY_EQUAL, AppliedModifiers::Exact(modifiers::NONE));
             }
         },
     );
@@ -60,7 +60,7 @@ fn main() {
             move |api| {
                 api.send_mouse_actions(vec![
                     MouseAction::Abs(MouseAbsAction::new(AbsoluteAxisCode::ABS_X, 1359)),
-                    MouseAction::Abs(MouseAbsAction::new(AbsoluteAxisCode::ABS_Y, 768-100)),
+                    MouseAction::Abs(MouseAbsAction::new(AbsoluteAxisCode::ABS_Y, 768 - 100)),
                 ]);
             }
         },

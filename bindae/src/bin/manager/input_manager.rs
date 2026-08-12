@@ -1,10 +1,7 @@
 //! Handles input devices..
 use std::{
     collections::HashSet,
-    os::{
-        fd::{AsRawFd, BorrowedFd},
-        unix::net::UnixStream,
-    },
+    os::fd::{AsRawFd, BorrowedFd},
     path::PathBuf,
     thread::JoinHandle,
 };
@@ -23,6 +20,7 @@ impl InputShare {
 use crossbeam_channel::Sender;
 use evdev::{Device, FetchEventsSynced, KeyCode, RelativeAxisCode};
 use libdae::{
+    app::InputPrivSocket,
     input::{KeyAction, KeyState, Keybind, MouseAction, MouseRelAction},
     message, modifiers,
 };
@@ -35,8 +33,7 @@ enum DevType {
 }
 
 pub fn launch_input_listener(
-    // bindings: HashSet<Keybind>,
-    input_socket: UnixStream,
+    input_socket: InputPrivSocket,
     uinput_channel: Sender<message::MsgToUInput>,
 ) -> std::io::Result<InputShare> {
     let dir = std::path::Path::new("/dev/input/by-path/");
@@ -120,7 +117,7 @@ enum FdSource {
 fn input_loop(
     mut device_list: Vec<(Device, DevType)>,
     uinput_channel: Sender<message::MsgToUInput>,
-    input_socket: UnixStream,
+    mut input_socket: InputPrivSocket,
 ) -> std::io::Result<()> {
     let mut bindings: HashSet<Keybind> = HashSet::new();
     // Listen to devices.
@@ -183,8 +180,7 @@ fn input_loop(
                     )?,
                 },
                 FdSource::Socket => {
-                    let msg: message::MsgToInput =
-                        postcard::from_io((&input_socket, &mut [0; 256])).unwrap().0;
+                    let msg: message::MsgToInput = input_socket.receive().unwrap();
                     match msg {
                         message::MsgToInput::ChangeBindings(new_bindings) => {
                             bindings = new_bindings
@@ -202,7 +198,7 @@ fn handle_kbd_events(
     cur_modifiers: &mut modifiers::Modifiers,
     bindings: &mut HashSet<Keybind>,
     uinput_channel: &Sender<message::MsgToUInput>,
-    input_socket: &UnixStream,
+    input_socket: &InputPrivSocket,
 ) -> std::io::Result<()> {
     for event in events {
         if event.event_type() == evdev::EventType::SYNCHRONIZATION {
@@ -231,7 +227,9 @@ fn handle_kbd_events(
         };
         let bind = Keybind::new(code, event_state, *cur_modifiers);
         if bindings.contains(&bind) {
-            postcard::to_io(&bind, input_socket).expect("socket should send successfully");
+            input_socket
+                .send(&bind)
+                .expect("socket should send successfully");
             continue;
         }
         // libinput ignores keyrepeats, so this app does too.
@@ -251,7 +249,7 @@ fn handle_mouse_events(
     cur_modifiers: &mut modifiers::Modifiers,
     bindings: &mut HashSet<Keybind>,
     uinput_channel: &Sender<message::MsgToUInput>,
-    input_socket: &UnixStream,
+    input_socket: &InputPrivSocket,
 ) -> std::io::Result<()> {
     for event in events {
         if event.event_type() == evdev::EventType::SYNCHRONIZATION {
@@ -278,7 +276,9 @@ fn handle_mouse_events(
             };
             let bind = Keybind::new(code, event_state, *cur_modifiers);
             if bindings.contains(&bind) {
-                postcard::to_io(&bind, input_socket).expect("socket should send successfully");
+                input_socket
+                    .send(&bind)
+                    .expect("socket should send successfully");
                 continue;
             }
             // libinput ignores keyrepeats, so this app does too.
