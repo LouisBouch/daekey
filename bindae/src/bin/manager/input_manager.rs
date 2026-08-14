@@ -1,9 +1,11 @@
 //! Handles input devices..
 use std::{
     collections::HashSet,
+    ops::Add,
     os::fd::{AsRawFd, BorrowedFd},
     path::PathBuf,
     thread::JoinHandle,
+    time::{Duration, Instant},
 };
 
 pub struct InputShare {
@@ -31,11 +33,18 @@ enum DevType {
     Kbd,
     Mouse,
 }
+/// Holds information relative to a [`Device`].
+struct DeviceInfo {
+    /// The [`Device`] itself.
+    device: Device,
+    /// The type of the [`Device`].
+    d_type: DevType,
+    /// Modifiers (like shift, ctrl) that the [`Device`] is currently holding down.
+    d_modifiers: modifiers::Modifiers,
+}
 
-pub fn launch_input_listener(
-    input_socket: InputPrivSocket,
-    uinput_channel: Sender<message::MsgToUInput>,
-) -> std::io::Result<InputShare> {
+/// Get the device paths for both mouse and keyboard.
+fn get_device_paths() -> std::io::Result<Vec<(std::path::PathBuf, DevType)>> {
     let dir = std::path::Path::new("/dev/input/by-path/");
     let files = std::fs::read_dir(dir)?;
     let mut device_paths: Vec<(std::path::PathBuf, DevType)> = Vec::new();
@@ -56,10 +65,7 @@ pub fn launch_input_listener(
             None
         };
         if let Some(devtype) = devtype {
-            device_paths.push((
-                std::fs::canonicalize(dir.join(std::fs::read_link(dir.join(name.clone()))?))?,
-                devtype,
-            ));
+            device_paths.push((std::fs::canonicalize(dir.join(name.clone()))?, devtype));
         }
     }
     // Ensure path uniqueness.
@@ -67,32 +73,69 @@ pub fn launch_input_listener(
         let mut set: HashSet<PathBuf> = HashSet::new();
         device_paths.retain(|v| set.insert(v.0.clone()));
     }
+    Ok(device_paths)
+}
 
+/// Fetch currently active devices.
+///
+/// # Parameters
+///
+/// * `force_clean_state` - Forces the user to release all keys before fetching devices.
+///
+/// # Return
+///
+/// List of [`DeviceInfo`] that describes what [`Device`]s are currently active.
+fn fetch_devices(force_clean_state: bool) -> std::io::Result<Vec<DeviceInfo>> {
+    let device_paths = get_device_paths()?;
     let mut device_list = Vec::new();
     for device_path in device_paths {
         let mut dev = evdev::Device::open(device_path.0.clone())?;
         // Wait for all keys to be released before grabbing the device.
-        loop {
-            if dev.get_key_state()?.iter().len() == 0 {
-                dev.grab()?;
+        if force_clean_state {
+            loop {
                 if dev.get_key_state()?.iter().len() == 0 {
-                    break;
-                } else {
-                    dev.ungrab()?;
-                    println!(
-                        "Releasing grab: Key was pressed after checking that all keys were released but before device was grabbed."
-                    );
-                    println!(
-                        "If key was released before ungrab happened, the key will be stuck pressed down until pressed and released again. (very very very very very highly unlikely. Requires microsecond precision.)"
-                    );
+                    dev.grab()?;
+                    if dev.get_key_state()?.iter().len() == 0 {
+                        break;
+                    } else {
+                        dev.ungrab()?;
+                        println!(
+                            "Releasing grab: Key was pressed after checking that all keys were released but before device was grabbed."
+                        );
+                        println!(
+                            "WARNING: If key was released before ungrab happened, the key will be stuck pressed down until pressed and released again.\n
+                            (very very very very very highly unlikely. Requires microsecond precision.)"
+                        );
+                    }
                 }
+                std::thread::sleep(std::time::Duration::from_millis(100));
             }
-            std::thread::sleep(std::time::Duration::from_millis(100));
+        } else {
+            dev.grab()?;
+            if !dev.get_key_state()?.iter().len() == 0 {
+                println!(
+                    "WARNING: Keys were pressed when the device was grabbed.\n
+                    This can cause subtle bugs depending on when the key state changed and the context.\n
+                    Note: This can be ignored if the keys were already pressed on device update."
+                )
+            }
         }
-        device_list.push((dev, device_path.1));
+        let modifiers = modifiers::modifiers_from_key_codes(&dev.get_key_state()?);
+        device_list.push(DeviceInfo {
+            device: dev,
+            d_type: device_path.1,
+            d_modifiers: modifiers,
+        });
     }
+    Ok(device_list)
+}
+
+pub fn launch_input_listener(
+    input_socket: InputPrivSocket,
+    uinput_channel: Sender<message::MsgToUInput>,
+) -> std::io::Result<InputShare> {
     let handle = std::thread::spawn(move || {
-        input_loop(device_list, uinput_channel, input_socket).expect("input loop should not fail");
+        input_loop(uinput_channel, input_socket).expect("input loop should not fail");
     });
     Ok(InputShare { handle })
 }
@@ -115,18 +158,18 @@ enum FdSource {
     Socket,
 }
 fn input_loop(
-    mut device_list: Vec<(Device, DevType)>,
     uinput_channel: Sender<message::MsgToUInput>,
     mut input_socket: InputPrivSocket,
 ) -> std::io::Result<()> {
     let mut bindings: HashSet<Keybind> = HashSet::new();
+    let mut all_device_info = fetch_devices(true)?;
     // Listen to devices.
-    let mut wrapped_fds: Vec<_> = device_list
+    let mut wrapped_fds: Vec<_> = all_device_info
         .iter()
         .enumerate()
         .map(|(i, v)| unsafe {
             WrappedFd {
-                fd: BorrowedFd::borrow_raw(v.0.as_raw_fd()),
+                fd: BorrowedFd::borrow_raw(v.device.as_raw_fd()),
                 source: FdSource::Device(i),
             }
         })
@@ -137,8 +180,6 @@ fn input_loop(
             source: FdSource::Socket,
         }
     });
-    let mut cur_modifiers_per_dev: Vec<modifiers::Modifiers> =
-        vec![modifiers::NONE; device_list.len()];
 
     let mut key_actions: Vec<KeyAction> = Vec::with_capacity(4);
     let mut mouse_actions: Vec<MouseAction> = Vec::with_capacity(4);
@@ -161,19 +202,27 @@ fn input_loop(
                 continue;
             }
             match wrapped_fd.source {
-                FdSource::Device(dev_id) => match &mut device_list[dev_id] {
-                    (dev, DevType::Kbd) => handle_kbd_events(
-                        dev.fetch_events()?,
+                FdSource::Device(dev_id) => match &mut all_device_info[dev_id] {
+                    DeviceInfo {
+                        device,
+                        d_type: DevType::Kbd,
+                        d_modifiers,
+                    } => handle_kbd_events(
+                        device.fetch_events()?,
                         &mut key_actions,
-                        &mut cur_modifiers_per_dev[dev_id],
+                        d_modifiers,
                         &mut bindings,
                         &uinput_channel,
                         &input_socket,
                     )?,
-                    (dev, DevType::Mouse) => handle_mouse_events(
-                        dev.fetch_events()?,
+                    DeviceInfo {
+                        device,
+                        d_type: DevType::Mouse,
+                        d_modifiers,
+                    } => handle_mouse_events(
+                        device.fetch_events()?,
                         &mut mouse_actions,
-                        &mut cur_modifiers_per_dev[dev_id],
+                        d_modifiers,
                         &mut bindings,
                         &uinput_channel,
                         &input_socket,
@@ -185,13 +234,51 @@ fn input_loop(
                         message::MsgToInput::ChangeBindings(new_bindings) => {
                             bindings = new_bindings
                         }
-                        // TODO: Find way to reorganize things to allow updating devices.
-                        // Also, maybe put modifiers in struct that wraps [`DevType`] name DevInfo.
-                        // Copy over DevInfo if new Device has same physical_path as old one.
-                        // They will probably also point to the same function given that it
-                        // refetches ALL devices.
-                        message::MsgToInput::PointersChanged => todo!(),
-                        message::MsgToInput::KeyboardChanged => todo!(),
+                        message::MsgToInput::PointersChanged
+                        | message::MsgToInput::KeyboardChanged => {
+                            // If new devices are the same as the old ones, just ignore it.
+                            // let mut match_fail = false;
+                            // for new_path in get_device_paths().unwrap() {
+                            //     let new_phys_path = std::fs::read_to_string(
+                            //         PathBuf::new()
+                            //             .join("/sys/class/input/")
+                            //             .join(new_path.0.file_name().unwrap())
+                            //             .join("device/phys"),
+                            //     )
+                            //     .unwrap();
+                            //     let matched = all_device_info.iter().any(|v| {
+                            //         new_phys_path.trim() == v.device.physical_path().unwrap().trim()
+                            //     });
+                            //     if !matched {
+                            //         match_fail = true;
+                            //         break;
+                            //     }
+                            // }
+                            // if match_fail {
+                            //     continue;
+                            // }
+                            let match_fail =
+                                get_device_paths().unwrap().iter().any(|(new_path, _)| {
+                                    let new_phys_path = std::fs::read_to_string(
+                                        PathBuf::new()
+                                            .join("/sys/class/input/")
+                                            .join(new_path.file_name().unwrap())
+                                            .join("device/phys"),
+                                    )
+                                    .unwrap();
+                                    !all_device_info.iter().any(|dev_info| {
+                                        new_phys_path.trim()
+                                            == dev_info.device.physical_path().unwrap().trim()
+                                    })
+                                });
+                            if match_fail {
+                                continue;
+                            }
+                            // When either a mouse or keyboard is update/added/removed,
+                            // refetch the devices to makesur they are up to date.
+                            all_device_info.clear();
+                            all_device_info = fetch_devices(false)?
+                        }
                     }
                 }
             }
