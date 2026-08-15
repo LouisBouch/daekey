@@ -437,7 +437,6 @@ impl PointerHandler for CompositorClient {
     }
 }
 
-// TODO: Add back the input device listeners and notify input of it.
 impl SeatHandler for CompositorClient {
     fn seat_state(&mut self) -> &mut SeatState {
         &mut self.cmp_ctx.seat_state
