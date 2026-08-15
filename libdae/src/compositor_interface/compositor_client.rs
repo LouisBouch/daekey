@@ -278,7 +278,7 @@ impl Dispatch<WlCallback, CallbackReason> for CompositorClient {
             }
             CallbackReason::LayersConfigured => {
                 state.layers_state = LayersState::Ready;
-                println!("confed");
+                println!("confed: {:?}", std::time::Instant::now());
             }
         }
     }

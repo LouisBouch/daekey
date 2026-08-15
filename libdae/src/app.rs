@@ -112,7 +112,7 @@ pub fn launch(mut binder: Binder) {
             _ => eprintln!("There should not be any child socket in the core: {socket:?}"),
         }
     }
-    let (mut input_socket, uinput_socket) = (
+    let (input_socket, uinput_socket) = (
         input_socket.expect("input_socket should be initialized"),
         uinput_socket.expect("uinput_socket should be initialized"),
     );

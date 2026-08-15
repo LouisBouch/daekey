@@ -1,11 +1,11 @@
 //! Handles input devices..
 use std::{
     collections::HashSet,
-    ops::Add,
+    error::Error,
+    fmt::Display,
     os::fd::{AsRawFd, BorrowedFd},
     path::PathBuf,
     thread::JoinHandle,
-    time::{Duration, Instant},
 };
 
 pub struct InputShare {
@@ -112,6 +112,12 @@ fn fetch_devices(force_clean_state: bool) -> std::io::Result<Vec<DeviceInfo>> {
             }
         } else {
             dev.grab()?;
+            println!("grabbed: {:?}", std::time::Instant::now());
+            println!(
+                "dev: {:?}, nb_pressed: {}",
+                dev.name(),
+                dev.get_key_state()?.iter().len()
+            );
             if !dev.get_key_state()?.iter().len() == 0 {
                 println!(
                     "WARNING: Keys were pressed when the device was grabbed.\n
@@ -147,6 +153,7 @@ struct WrappedFd<'fd> {
     source: FdSource,
 }
 /// Source of a file descriptor.
+#[derive(Debug)]
 enum FdSource {
     /// Source of fd is an input device
     ///
@@ -162,32 +169,46 @@ fn input_loop(
     mut input_socket: InputPrivSocket,
 ) -> std::io::Result<()> {
     let mut bindings: HashSet<Keybind> = HashSet::new();
-    let mut all_device_info = fetch_devices(true)?;
     // Listen to devices.
-    let mut wrapped_fds: Vec<_> = all_device_info
-        .iter()
-        .enumerate()
-        .map(|(i, v)| unsafe {
-            WrappedFd {
-                fd: BorrowedFd::borrow_raw(v.device.as_raw_fd()),
-                source: FdSource::Device(i),
-            }
-        })
-        .collect();
-    wrapped_fds.push(unsafe {
-        WrappedFd {
-            fd: BorrowedFd::borrow_raw(input_socket.as_raw_fd()),
-            source: FdSource::Socket,
-        }
-    });
-
     let mut key_actions: Vec<KeyAction> = Vec::with_capacity(4);
     let mut mouse_actions: Vec<MouseAction> = Vec::with_capacity(4);
-    let mut poll_fds: Vec<PollFd> = wrapped_fds
-        .iter()
-        .map(|v| nix::poll::PollFd::new(v.fd, PollFlags::POLLIN))
-        .collect();
+
+    // Define the device list and the file descriptors we will populate later.
+    let mut all_device_info = Vec::new();
+    let mut wrapped_fds = Vec::new();
+    let mut poll_fds: Vec<PollFd> = Vec::new();
+    let mut update_devices = true;
+    let mut first_fetch = true;
     loop {
+        // Populate list of devices and fiel descriptor we listen to.
+        if update_devices {
+            all_device_info.clear();
+            all_device_info = fetch_devices(first_fetch)?;
+            wrapped_fds = all_device_info
+                .iter()
+                .enumerate()
+                .map(|(i, v)| unsafe {
+                    WrappedFd {
+                        fd: BorrowedFd::borrow_raw(v.device.as_raw_fd()),
+                        source: FdSource::Device(i),
+                    }
+                })
+                .collect();
+            wrapped_fds.push(unsafe {
+                WrappedFd {
+                    fd: BorrowedFd::borrow_raw(input_socket.as_raw_fd()),
+                    source: FdSource::Socket,
+                }
+            });
+            poll_fds = wrapped_fds
+                .iter()
+                .map(|v| nix::poll::PollFd::new(v.fd, PollFlags::POLLIN))
+                .collect();
+            update_devices = false;
+            first_fetch = false;
+        }
+
+        // Block for message from core or for input from device.
         if poll(&mut poll_fds, PollTimeout::NONE).is_err() {
             break;
         }
@@ -237,47 +258,12 @@ fn input_loop(
                         message::MsgToInput::PointersChanged
                         | message::MsgToInput::KeyboardChanged => {
                             // If new devices are the same as the old ones, just ignore it.
-                            // let mut match_fail = false;
-                            // for new_path in get_device_paths().unwrap() {
-                            //     let new_phys_path = std::fs::read_to_string(
-                            //         PathBuf::new()
-                            //             .join("/sys/class/input/")
-                            //             .join(new_path.0.file_name().unwrap())
-                            //             .join("device/phys"),
-                            //     )
-                            //     .unwrap();
-                            //     let matched = all_device_info.iter().any(|v| {
-                            //         new_phys_path.trim() == v.device.physical_path().unwrap().trim()
-                            //     });
-                            //     if !matched {
-                            //         match_fail = true;
-                            //         break;
-                            //     }
-                            // }
-                            // if match_fail {
-                            //     continue;
-                            // }
-                            let match_fail =
-                                get_device_paths().unwrap().iter().any(|(new_path, _)| {
-                                    let new_phys_path = std::fs::read_to_string(
-                                        PathBuf::new()
-                                            .join("/sys/class/input/")
-                                            .join(new_path.file_name().unwrap())
-                                            .join("device/phys"),
-                                    )
-                                    .unwrap();
-                                    !all_device_info.iter().any(|dev_info| {
-                                        new_phys_path.trim()
-                                            == dev_info.device.physical_path().unwrap().trim()
-                                    })
-                                });
-                            if match_fail {
-                                continue;
+                            let changed = devices_changed(&all_device_info);
+                            if changed.unwrap_or(true) {
+                                // When either a mouse or keyboard is update/added/removed,
+                                // refetch the devices to makesur they are up to date.
+                                update_devices = true;
                             }
-                            // When either a mouse or keyboard is update/added/removed,
-                            // refetch the devices to makesur they are up to date.
-                            all_device_info.clear();
-                            all_device_info = fetch_devices(false)?
                         }
                     }
                 }
@@ -285,6 +271,65 @@ fn input_loop(
         }
     }
     Ok(())
+}
+
+#[derive(Debug)]
+/// Error when  comparing devices.
+enum DevErr {
+    DeviceHasNoPhysicalPath,
+    DevicePathHasNoFileName,
+    IoError(std::io::Error),
+}
+impl Error for DevErr {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            DevErr::DeviceHasNoPhysicalPath => None,
+            DevErr::DevicePathHasNoFileName => None,
+            DevErr::IoError(error) => Some(error),
+        }
+    }
+}
+impl Display for DevErr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Error while trying to check devices: {:?}", self)
+    }
+}
+/// Check whether the devices have changed.
+fn devices_changed(all_device_info: &[DeviceInfo]) -> Result<bool, DevErr> {
+    let mut match_fail = false;
+    for new_path in get_device_paths().map_err(DevErr::IoError)? {
+        let new_phys_path = std::fs::read_to_string(
+            PathBuf::new()
+                .join("/sys/class/input/")
+                .join(
+                    new_path
+                        .0
+                        .file_name()
+                        .ok_or(DevErr::DevicePathHasNoFileName)?,
+                )
+                .join("device/phys"),
+        )
+        .map_err(DevErr::IoError)?;
+        let mut matched = false;
+        for dev_info in all_device_info {
+            if new_phys_path.trim()
+                == dev_info
+                    .device
+                    .physical_path()
+                    .ok_or(DevErr::DeviceHasNoPhysicalPath)?
+                    .trim()
+            {
+                matched = true;
+                continue;
+            }
+        }
+        if !matched {
+            match_fail = true;
+            break;
+        }
+    }
+    // Devices need to be changed if a match failed.
+    Ok(match_fail)
 }
 fn handle_kbd_events(
     events: FetchEventsSynced<'_>,
