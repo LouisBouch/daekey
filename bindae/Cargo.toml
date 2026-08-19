@@ -8,6 +8,6 @@ libdae = { path = "../libdae" }
 evdev = "0.13.2"
 postcard = { version = "1.0.0", features = ["use-std"] }
 serde = { version = "1.0.*", features = ["derive"] }
-nix = { version = "0.31", features = ["socket", "uio", "poll"] }
+nix = { version = "0.31", features = ["socket", "uio", "poll", "time"] }
 crossbeam = "0.8"
 crossbeam-channel = "0.5"

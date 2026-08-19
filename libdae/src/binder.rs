@@ -1,17 +1,12 @@
 //! The app setup goes through the binder.
-use std::{
-    collections::HashMap,
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use evdev::KeyCode;
-use serde::{Deserialize, Serialize};
 
 use crate::{
     api::Api,
     input::{KeyState, Keybind},
     modifiers,
-    compositor_interface::ScreenSpace,
 };
 
 /// Holds everything necessary for the app to work.
@@ -24,6 +19,8 @@ pub struct Binder {
     toggle_bindings_key: Keybind,
     /// Keybind that exit the program.
     exit_key: Keybind,
+    /// Minimum mouse polling interval betwene relative motion events.
+    min_mouse_poll_interval: Duration,
     /// Whether the keybinds are paused or not.
     paused: bool,
 }
@@ -37,6 +34,8 @@ impl Binder {
             bindings: HashMap::new(),
             toggle_bindings_key,
             exit_key,
+            // By default, allow any polling rate.
+            min_mouse_poll_interval: Duration::ZERO,
             paused: false,
         }
     }
@@ -68,6 +67,13 @@ impl Binder {
     pub fn set_exit_key(&mut self, key: Keybind) {
         self.exit_key = key;
     }
+    /// Set the minimum amount of time that has to pass before sending consecutive
+    /// relative mouse movements to the compositor.
+    /// This can be used to enhance compatibility with high polling rate mouse with legacy
+    /// applications.
+    pub fn set_min_mouse_polling_interval(&mut self, interval: Duration) {
+        self.min_mouse_poll_interval = interval;
+    }
 
     pub fn max_threads(&self) -> u16 {
         self.max_threads
@@ -81,32 +87,13 @@ impl Binder {
     pub fn toggle_bindings_key(&self) -> Keybind {
         self.toggle_bindings_key
     }
-    pub fn bindings(
-        &self,
-    ) -> &HashMap<Keybind, Arc<dyn Fn(&Api) + Send + Sync + 'static>>
-    {
+    pub fn bindings(&self) -> &HashMap<Keybind, Arc<dyn Fn(&Api) + Send + Sync + 'static>> {
         &self.bindings
     }
     pub fn set_paused(&mut self, paused: bool) {
         self.paused = paused;
     }
-
-}
-
-#[doc(hidden)]
-#[derive(Serialize, Deserialize, Debug)]
-/// Context for the privileged process.
-pub struct SetupContext {
-    /// Number of threads to deploy
-    nb_threads: u16,
-    /// Information about the monitor layout.
-    screen_space: ScreenSpace,
-}
-impl SetupContext {
-    pub fn nb_threads(&self) -> u16 {
-        self.nb_threads
-    }
-    pub fn screen_space(&self) -> &ScreenSpace {
-        &self.screen_space
+    pub fn min_mouse_poll_interval(&self) -> Duration {
+        self.min_mouse_poll_interval
     }
 }

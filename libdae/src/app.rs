@@ -11,7 +11,7 @@ use std::{
     },
     process::{Child, Command, Stdio},
     sync::{Arc, Mutex},
-    thread,
+    thread, time::Duration,
 };
 
 use nix::sys::socket::{ControlMessage, MsgFlags, sendmsg};
@@ -90,6 +90,7 @@ pub fn launch(mut binder: Binder) {
     let context = SetupContext {
         nb_threads: binder.max_threads(),
         screen_space: screen_space.clone(),
+        min_mouse_poll_interval: binder.min_mouse_poll_interval(),
     };
     postcard::to_io(&context, &socket_core_end).expect("postcard should be able to serialize");
     // Wait for context acknowledgement from the privileged process, otherwise the ancillary data
@@ -302,6 +303,8 @@ pub struct SetupContext {
     nb_threads: u16,
     /// Information about the monitor layout.
     screen_space: ScreenSpace,
+    /// Minimum mouse polling interval betwene relative motion events.
+    min_mouse_poll_interval: Duration,
 }
 impl SetupContext {
     pub fn nb_threads(&self) -> u16 {
@@ -309,6 +312,9 @@ impl SetupContext {
     }
     pub fn screen_space(&self) -> &ScreenSpace {
         &self.screen_space
+    }
+    pub fn min_mouse_poll_interval(&self) -> Duration {
+        self.min_mouse_poll_interval
     }
 }
 // TODO: Make a macro to write enums and from_socket_type automatically from a single enum

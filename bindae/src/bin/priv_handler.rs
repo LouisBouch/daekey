@@ -21,10 +21,9 @@ impl PrivHandler {
     pub fn launch_handler() {
         // Read necessary data first.
 
-        let ctx: libdae::binder::SetupContext =
-            postcard::from_io((std::io::stdin(), &mut [0; 256]))
-                .unwrap()
-                .0;
+        let ctx: libdae::app::SetupContext = postcard::from_io((std::io::stdin(), &mut [0; 256]))
+            .unwrap()
+            .0;
         // Use fd 0 as a write-back stream (works because its a socket) instead of stdin.
         let socket_stream = unsafe { UnixStream::from_raw_fd(0) };
         postcard::to_io(&true, &socket_stream).expect("postcard should be able to serialize");
@@ -59,6 +58,7 @@ impl PrivHandler {
         let input_share = input_manager::launch_input_listener(
             input_socket,
             uinput_share.uinput_sender().clone(),
+            ctx.min_mouse_poll_interval(),
         )
         .expect("input manager should launch successfully");
 

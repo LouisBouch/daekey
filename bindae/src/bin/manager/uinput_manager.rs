@@ -103,7 +103,7 @@ pub fn launch_uinput_listener(
             }
         })
     };
-    let handle = std::thread::spawn(|| {
+    let handle = std::thread::spawn(move || {
         uinput_loop(virt_kbd, virt_mouse_rel, virt_mouse_abs, receiver);
     });
     Ok(UInputShare {

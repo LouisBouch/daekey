@@ -3,9 +3,10 @@ use std::{
     collections::HashSet,
     error::Error,
     fmt::Display,
-    os::fd::{AsRawFd, BorrowedFd},
+    os::fd::{AsFd, AsRawFd, BorrowedFd},
     path::PathBuf,
     thread::JoinHandle,
+    time::Duration,
 };
 
 pub struct InputShare {
@@ -26,7 +27,10 @@ use libdae::{
     input::{KeyAction, KeyState, Keybind, MouseAction, MouseRelAction},
     message, modifiers,
 };
-use nix::poll::{PollFd, PollFlags, PollTimeout, poll};
+use nix::{
+    poll::{PollFd, PollFlags, PollTimeout, poll},
+    sys::{time::TimeSpec, timerfd},
+};
 
 #[derive(Clone, Copy)]
 enum DevType {
@@ -139,9 +143,11 @@ fn fetch_devices(force_clean_state: bool) -> std::io::Result<Vec<DeviceInfo>> {
 pub fn launch_input_listener(
     input_socket: InputPrivSocket,
     uinput_channel: Sender<message::MsgToUInput>,
+    min_mouse_poll_interval: Duration,
 ) -> std::io::Result<InputShare> {
     let handle = std::thread::spawn(move || {
-        input_loop(uinput_channel, input_socket).expect("input loop should not fail");
+        input_loop(uinput_channel, input_socket, min_mouse_poll_interval)
+            .expect("input loop should not fail");
     });
     Ok(InputShare { handle })
 }
@@ -163,13 +169,27 @@ enum FdSource {
     Device(usize),
     /// Source of fd is a socket.
     Socket,
+    /// An fd timer ran out and activated.
+    ///
+    /// # Parameters
+    ///
+    /// * `FdTimerReason` - The reason why the timer triggered.
+    Timer(FdTimerReason),
+}
+/// The reason why an fd timer triggered.
+#[derive(Debug)]
+enum FdTimerReason {
+    /// Relative mouse actions need to be sent. Usually done because values accumulated between
+    /// minimum poll intervals.
+    SendRelMouseActions,
 }
 fn input_loop(
     uinput_channel: Sender<message::MsgToUInput>,
     mut input_socket: InputPrivSocket,
+    min_mouse_poll_interval: Duration,
 ) -> std::io::Result<()> {
     let mut bindings: HashSet<Keybind> = HashSet::new();
-    // Listen to devices.
+    // List of pending actions before a sync event.
     let mut key_actions: Vec<KeyAction> = Vec::with_capacity(4);
     let mut mouse_actions: Vec<MouseAction> = Vec::with_capacity(4);
 
@@ -179,6 +199,12 @@ fn input_loop(
     let mut poll_fds: Vec<PollFd> = Vec::new();
     let mut update_devices = true;
     let mut first_fetch = true;
+
+    let fd_timer = timerfd::TimerFd::new(
+        timerfd::ClockId::CLOCK_MONOTONIC,
+        timerfd::TimerFlags::empty(),
+    )?;
+
     loop {
         // Populate list of devices and fiel descriptor we listen to.
         if update_devices {
@@ -199,6 +225,10 @@ fn input_loop(
                     fd: BorrowedFd::borrow_raw(input_socket.as_raw_fd()),
                     source: FdSource::Socket,
                 }
+            });
+            wrapped_fds.push(WrappedFd {
+                fd: fd_timer.as_fd(),
+                source: FdSource::Timer(FdTimerReason::SendRelMouseActions),
             });
             poll_fds = wrapped_fds
                 .iter()
@@ -222,8 +252,8 @@ fn input_loop(
             if !poll_fd.any().expect(sf_exp) {
                 continue;
             }
-            match wrapped_fd.source {
-                FdSource::Device(dev_id) => match &mut all_device_info[dev_id] {
+            match &wrapped_fd.source {
+                FdSource::Device(dev_id) => match &mut all_device_info[*dev_id] {
                     DeviceInfo {
                         device,
                         d_type: DevType::Kbd,
@@ -266,6 +296,15 @@ fn input_loop(
                             }
                         }
                     }
+                }
+                // TODO: Implement minimum polling interval in the input manager.
+                FdSource::Timer(fd_timer_reason) => {
+                    // Empty the fd so that it stops being readable.
+                    fd_timer.wait()?;
+                    // fd_timer.set(
+                    //     timerfd::Expiration::OneShot(TimeSpec::from_duration(Duration::ZERO)),
+                    //     timerfd::TimerSetTimeFlags::empty(),
+                    // )?;
                 }
             }
         }
