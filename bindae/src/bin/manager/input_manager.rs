@@ -1,12 +1,12 @@
 //! Handles input devices..
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     error::Error,
     fmt::Display,
     os::fd::{AsFd, AsRawFd, BorrowedFd},
     path::PathBuf,
     thread::JoinHandle,
-    time::Duration,
+    time::{Duration, UNIX_EPOCH},
 };
 
 pub struct InputShare {
@@ -28,8 +28,7 @@ use libdae::{
     message, modifiers,
 };
 use nix::{
-    poll::{PollFd, PollFlags, PollTimeout, poll},
-    sys::{time::TimeSpec, timerfd},
+    libc::clock_gettime, poll::{PollFd, PollFlags, PollTimeout, poll}, sys::{time::TimeSpec, timerfd}
 };
 
 #[derive(Clone, Copy)]
@@ -179,9 +178,9 @@ enum FdSource {
 /// The reason why an fd timer triggered.
 #[derive(Debug)]
 enum FdTimerReason {
-    /// Relative mouse actions need to be sent. Usually done because values accumulated between
+    /// accumulated relative mouse actions need to be sent. Usually done because values accumulated between
     /// minimum poll intervals.
-    SendRelMouseActions,
+    SendAccRelMouseActions,
 }
 fn input_loop(
     uinput_channel: Sender<message::MsgToUInput>,
@@ -201,10 +200,12 @@ fn input_loop(
     let mut first_fetch = true;
 
     let fd_timer = timerfd::TimerFd::new(
-        timerfd::ClockId::CLOCK_MONOTONIC,
+        timerfd::ClockId::CLOCK_REALTIME,
         timerfd::TimerFlags::empty(),
     )?;
-
+    // List of accumualted movements between mouse polls.
+    let mut accumulated_relative_mouse_movements: HashMap<evdev::RelativeAxisCode, i32> =
+        HashMap::new();
     loop {
         // Populate list of devices and fiel descriptor we listen to.
         if update_devices {
@@ -228,7 +229,7 @@ fn input_loop(
             });
             wrapped_fds.push(WrappedFd {
                 fd: fd_timer.as_fd(),
-                source: FdSource::Timer(FdTimerReason::SendRelMouseActions),
+                source: FdSource::Timer(FdTimerReason::SendAccRelMouseActions),
             });
             poll_fds = wrapped_fds
                 .iter()
@@ -277,6 +278,9 @@ fn input_loop(
                         &mut bindings,
                         &uinput_channel,
                         &input_socket,
+                        min_mouse_poll_interval,
+                        &mut accumulated_relative_mouse_movements,
+                        &fd_timer,
                     )?,
                 },
                 FdSource::Socket => {
@@ -297,14 +301,23 @@ fn input_loop(
                         }
                     }
                 }
-                // TODO: Implement minimum polling interval in the input manager.
                 FdSource::Timer(fd_timer_reason) => {
                     // Empty the fd so that it stops being readable.
                     fd_timer.wait()?;
-                    // fd_timer.set(
-                    //     timerfd::Expiration::OneShot(TimeSpec::from_duration(Duration::ZERO)),
-                    //     timerfd::TimerSetTimeFlags::empty(),
-                    // )?;
+                    match fd_timer_reason {
+                        FdTimerReason::SendAccRelMouseActions => {
+                            let actions = accumulated_relative_mouse_movements
+                                .drain()
+                                .map(|(rel_axis, value)| {
+                                    MouseAction::Rel(MouseRelAction::new(rel_axis, value))
+                                })
+                                .collect();
+                            message::send_msg(
+                                &uinput_channel,
+                                message::MsgToUInput::SendMouseActions(actions),
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -428,48 +441,86 @@ fn handle_mouse_events(
     bindings: &mut HashSet<Keybind>,
     uinput_channel: &Sender<message::MsgToUInput>,
     input_socket: &InputPrivSocket,
+    poll_interval: Duration,
+    accumulated_rel_movements: &mut HashMap<evdev::RelativeAxisCode, i32>,
+    fd_timer: &timerfd::TimerFd,
 ) -> std::io::Result<()> {
     for event in events {
-        if event.event_type() == evdev::EventType::SYNCHRONIZATION {
-            message::send_msg(
-                &uinput_channel,
-                message::MsgToUInput::SendMouseActions(mouse_actions.clone()),
-            );
-            mouse_actions.clear();
-            continue;
-        } else if event.event_type() == evdev::EventType::KEY {
-            let event_val = event.value();
-            let code = KeyCode::new(event.code());
-            let is_key_modi = modifiers::modifier_from_keycode(code);
-            let event_state = if event_val == 0 {
-                // On release, remove the modifier.
-                *cur_modifiers &= !is_key_modi;
-                KeyState::Released
-            } else if event_val == 1 {
-                // On press, add the modifier.
-                *cur_modifiers |= is_key_modi;
-                KeyState::Pressed
-            } else {
-                KeyState::Repeated
-            };
-            let bind = Keybind::new(code, event_state, *cur_modifiers);
-            if bindings.contains(&bind) {
-                input_socket
-                    .send(&bind)
-                    .expect("socket should send successfully");
-                continue;
+        match event.event_type() {
+            evdev::EventType::SYNCHRONIZATION => {
+                if !poll_interval.is_zero() {
+                    // Simulate the next poll for the mouse.
+                    if fd_timer.get()?.is_none() {
+                        let int_micros = poll_interval.as_micros();
+                        let since_epoch = event
+                            .timestamp()
+                            .duration_since(UNIX_EPOCH)
+                            .expect("should be valid duration");
+                        let time_until_next_interval = Duration::from_micros(
+                            (int_micros - since_epoch.as_micros() % int_micros) as u64,
+                        );
+                        fd_timer.set(
+                            timerfd::Expiration::OneShot(TimeSpec::from_duration(
+                                since_epoch + time_until_next_interval,
+                            )),
+                            timerfd::TimerSetTimeFlags::TFD_TIMER_ABSTIME,
+                        )?;
+                    }
+                    // Remove relative movmenets from the queue and accumulate them.
+                    let mut non_rel_mouse_actions: Vec<MouseAction> = Vec::new();
+                    for action in mouse_actions.iter() {
+                        match action {
+                            MouseAction::Rel(mouse_rel_action) => {
+                                *accumulated_rel_movements
+                                    .entry(mouse_rel_action.axis)
+                                    .or_insert(0) += mouse_rel_action.value;
+                            }
+                            _ => non_rel_mouse_actions.push(action.clone()),
+                        }
+                    }
+                    *mouse_actions = non_rel_mouse_actions;
+                }
+                message::send_msg(
+                    &uinput_channel,
+                    message::MsgToUInput::SendMouseActions(std::mem::take(mouse_actions)),
+                );
             }
-            // libinput ignores keyrepeats, so this app does too.
-            // sending it does nothing.
-            // Repeats are handled by the compositor directly.
-            if event_state == KeyState::Repeated {
-                continue;
+            evdev::EventType::KEY => {
+                let event_val = event.value();
+                let code = KeyCode::new(event.code());
+                let is_key_modi = modifiers::modifier_from_keycode(code);
+                let event_state = if event_val == 0 {
+                    // On release, remove the modifier.
+                    *cur_modifiers &= !is_key_modi;
+                    KeyState::Released
+                } else if event_val == 1 {
+                    // On press, add the modifier.
+                    *cur_modifiers |= is_key_modi;
+                    KeyState::Pressed
+                } else {
+                    KeyState::Repeated
+                };
+                let bind = Keybind::new(code, event_state, *cur_modifiers);
+                if bindings.contains(&bind) {
+                    input_socket
+                        .send(&bind)
+                        .expect("socket should send successfully");
+                    continue;
+                }
+                // libinput ignores keyrepeats, so this app does too.
+                // sending it does nothing.
+                // Repeats are handled by the compositor directly.
+                if event_state == KeyState::Repeated {
+                    continue;
+                }
+                mouse_actions.push(MouseAction::Key(KeyAction::new(code, event_state)));
             }
-            mouse_actions.push(MouseAction::Key(KeyAction::new(code, event_state)));
-        } else if event.event_type() == evdev::EventType::RELATIVE {
-            let event_val = event.value();
-            let code = RelativeAxisCode(event.code());
-            mouse_actions.push(MouseAction::Rel(MouseRelAction::new(code, event_val)));
+            evdev::EventType::RELATIVE => {
+                let event_val = event.value();
+                let code = RelativeAxisCode(event.code());
+                mouse_actions.push(MouseAction::Rel(MouseRelAction::new(code, event_val)));
+            }
+            _ => (),
         }
     }
     Ok(())

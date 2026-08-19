@@ -69,10 +69,36 @@ impl Binder {
     }
     /// Set the minimum amount of time that has to pass before sending consecutive
     /// relative mouse movements to the compositor.
-    /// This can be used to enhance compatibility with high polling rate mouse with legacy
+    /// This can be used to enhance compatibility with high polling rate mouse in legacy
     /// applications.
-    pub fn set_min_mouse_polling_interval(&mut self, interval: Duration) {
+    ///
+    /// NOTE: This cannot got lower than what the mouse offers.
+    /// Also, to prevent unwanted latency, set this value as a multiple of your mouse's actual polling interval.
+    /// NOTE2: This only affects RELATIVE actions such as X/Y movement, scroll, etc. It does NOT
+    /// affect clicks. This is technically innacurate when emulating low polling mice, but
+    /// implementing the low polling for clicks as well is just an annoyance (it drops clicks) and does not really
+    /// offer additional compatibilty.
+    /// NOTE3: This only affects actual devices. If you manually send relative events faster, it will
+    /// not throttle.
+    pub fn set_mouse_polling_interval(&mut self, interval: Duration) {
         self.min_mouse_poll_interval = interval;
+    }
+    /// Sets the polling rate of the mouse.
+    ///
+    /// # Parameters
+    ///
+    /// * `poll_rate` - The polling rate to emulate, in Hertz.
+    ///
+    /// NOTE: This cannot go higher that what the mouse offers.
+    /// Also, to prevent unwanted latency, set this value as a multiple of your mouse's actual polling interval.
+    /// NOTE2: This only affects RELATIVE actions such as X/Y movement, scroll, etc. It does NOT
+    /// affect clicks. This is technically innacurate when emulating low polling mice, but
+    /// implementing the low polling for clicks as well is just an annoyance (it drops clicks) and does not really
+    /// offer additional compatibilty.
+    /// NOTE3: This only affects actual devices. If you manually send relative events faster, it will
+    /// not throttle.
+    pub fn set_mouse_polling_rate(&mut self, poll_rate: u32) {
+        self.set_mouse_polling_interval(Duration::from_secs_f64(1.0 / poll_rate as f64));
     }
 
     pub fn max_threads(&self) -> u16 {

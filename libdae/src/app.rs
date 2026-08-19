@@ -261,6 +261,7 @@ fn share_sockets(
     Ok(sockets)
 }
 /// Send a socket over another socket.
+///
 /// # Parameters
 ///
 /// * `channel_socket` - The socket over which the new socket will be sent over.
