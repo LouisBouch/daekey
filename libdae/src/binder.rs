@@ -80,7 +80,7 @@ impl Binder {
     /// offer additional compatibilty.
     /// NOTE3: This only affects actual devices. If you manually send relative events faster, it will
     /// not throttle.
-    pub fn set_mouse_polling_interval(&mut self, interval: Duration) {
+    pub fn set_rel_mouse_polling_interval(&mut self, interval: Duration) {
         self.min_mouse_poll_interval = interval;
     }
     /// Sets the polling rate of the mouse.
@@ -97,8 +97,8 @@ impl Binder {
     /// offer additional compatibilty.
     /// NOTE3: This only affects actual devices. If you manually send relative events faster, it will
     /// not throttle.
-    pub fn set_mouse_polling_rate(&mut self, poll_rate: u32) {
-        self.set_mouse_polling_interval(Duration::from_secs_f64(1.0 / poll_rate as f64));
+    pub fn set_rel_mouse_polling_rate(&mut self, poll_rate: u32) {
+        self.set_rel_mouse_polling_interval(Duration::from_secs_f64(1.0 / poll_rate as f64));
     }
 
     pub fn max_threads(&self) -> u16 {
