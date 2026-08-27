@@ -11,6 +11,6 @@ fn main() {
         KeyState::Pressed,
         modifiers::RIGHT_SHIFT,
     ));
-    binder.set_mouse_polling_interval(Duration::from_millis(1000));
-    app::launch(binder);
+    binder.set_rel_mouse_polling_interval(Duration::from_millis(1000));
+    app::launch_bindings(binder);
 }

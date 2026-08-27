@@ -86,5 +86,5 @@ fn main() {
         KeyState::Pressed,
         modifiers::RIGHT_SHIFT,
     ));
-    app::launch(binder);
+    app::launch_bindings(binder);
 }

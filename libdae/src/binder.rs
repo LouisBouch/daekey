@@ -9,7 +9,9 @@ use crate::{
     modifiers,
 };
 
-/// Holds everything necessary for the app to work.
+/// Holds everything necessary for the app to work with bindings.
+// TODO: Rethink structure. Binder holds too much currently and will make it harder to reason about
+// adding a "macro_handler" that is used to register macros.
 pub struct Binder {
     /// Maximum number of threads to run closures with.
     max_threads: u16,

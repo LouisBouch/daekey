@@ -75,7 +75,7 @@ fn start_priv_process(socket_priv_end: UnixStream) -> Child {
 
 /// Entry point into the app.
 /// Starts the necessary process and threads.
-pub fn launch(mut binder: Binder) {
+pub fn launch_bindings(mut binder: Binder) {
     let (socket_core_end, socket_priv_end) = std::os::unix::net::UnixStream::pair().unwrap();
     let mut child = start_priv_process(socket_priv_end);
 
