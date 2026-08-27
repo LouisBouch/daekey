@@ -1,47 +1,46 @@
 //! The app setup goes through the binder.
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use evdev::KeyCode;
-
-use crate::{
-    api::Api,
-    input::{KeyState, Keybind},
-    modifiers,
-};
+use crate::{api::Api, input::Keybind};
+/// An action linked to a keybind.
+#[derive(Clone)]
+pub enum Action {
+    Closure(Arc<dyn Fn(&Api) + Send + Sync>),
+    /// Pauses and unpauses closures. When paused, pressing a keybind won't trigger the associated closure.
+    TogglePauseClosures,
+    /// Start recording a macro.
+    MacroRecordingStart,
+    /// Stop recording a macro.
+    MacroRecordingStop,
+    /// Exit the app.
+    Exit,
+}
 
 /// Holds everything necessary for the app to work with bindings.
 // TODO: Rethink structure. Binder holds too much currently and will make it harder to reason about
-// adding a "macro_handler" that is used to register macros.
-pub struct Binder {
+// adding macro handling.
+// TODO: Add some start and stop recodring keys.
+pub struct Configs {
     /// Maximum number of threads to run closures with.
     max_threads: u16,
     /// The closures for each keybindings.
-    bindings: HashMap<Keybind, Arc<dyn Fn(&Api) + Send + Sync>>,
-    /// Keybind that toggles the other keybindings.
-    toggle_bindings_key: Keybind,
-    /// Keybind that exit the program.
-    exit_key: Keybind,
+    bindings: HashMap<Keybind, Action>,
     /// Minimum mouse polling interval betwene relative motion events.
     min_mouse_poll_interval: Duration,
     /// Whether the keybinds are paused or not.
     paused: bool,
 }
-impl Binder {
+impl Configs {
     pub fn new(max_threads: u16) -> Self {
-        let toggle_bindings_key =
-            Keybind::new(KeyCode::KEY_PAUSE, KeyState::Pressed, modifiers::NONE);
-        let exit_key = Keybind::new(KeyCode::KEY_PAUSE, KeyState::Pressed, modifiers::RIGHT_CTRL);
-        Binder {
+        Configs {
             max_threads,
             bindings: HashMap::new(),
-            toggle_bindings_key,
-            exit_key,
             // By default, allow any polling rate.
             min_mouse_poll_interval: Duration::ZERO,
             paused: false,
         }
     }
-    /// Create new keybinding.
+    /// Create new keybinding with closure.
     ///
     /// # Arguments
     ///
@@ -50,24 +49,26 @@ impl Binder {
     ///
     /// # Return
     ///
-    /// [`None`] if the binding did not already exist or the old closure [`Arc<dyn Fn(&Api) + Send + Sync>`] if the binding is overwritting the old binding.
-    pub fn create_binding<F>(
-        &mut self,
-        key: Keybind,
-        closure: F,
-    ) -> Option<Arc<dyn Fn(&Api) + Send + Sync>>
+    /// [`None`] if the binding did not already exist or the old [`Action`] if the binding is overwritting the old binding.
+    pub fn create_closure_binding<F>(&mut self, key: Keybind, closure: F) -> Option<Action>
     where
         F: Fn(&Api) + 'static + Send + Sync,
     {
-        self.bindings.insert(key, Arc::new(closure))
+        self.bindings
+            .insert(key, Action::Closure(Arc::new(closure)))
     }
-    /// Defines a key to turn keybind activation on or off.
-    pub fn set_toggle_bindings_key(&mut self, key: Keybind) {
-        self.toggle_bindings_key = key;
-    }
-    /// Defines a key to exit the daemon.
-    pub fn set_exit_key(&mut self, key: Keybind) {
-        self.exit_key = key;
+    /// Create new keybinding with an [`Action`].
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to bind it to.
+    /// * `action` - The action associated with the binding.
+    ///
+    /// # Return
+    ///
+    /// [`None`] if the binding did not already exist or the old [`Action`].
+    pub fn create_binding(&mut self, key: Keybind, action: Action) -> Option<Action> {
+        self.bindings.insert(key, action)
     }
     /// Set the minimum amount of time that has to pass before sending consecutive
     /// relative mouse movements to the compositor.
@@ -109,13 +110,7 @@ impl Binder {
     pub fn paused(&self) -> bool {
         self.paused
     }
-    pub fn exit_key(&self) -> Keybind {
-        self.exit_key
-    }
-    pub fn toggle_bindings_key(&self) -> Keybind {
-        self.toggle_bindings_key
-    }
-    pub fn bindings(&self) -> &HashMap<Keybind, Arc<dyn Fn(&Api) + Send + Sync + 'static>> {
+    pub fn bindings(&self) -> &HashMap<Keybind, Action> {
         &self.bindings
     }
     pub fn set_paused(&mut self, paused: bool) {

@@ -1,4 +1,5 @@
 pub mod binder;
+#[doc(hidden)]
 pub mod app;
 pub mod input;
 pub mod api;

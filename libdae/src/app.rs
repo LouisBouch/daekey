@@ -11,7 +11,8 @@ use std::{
     },
     process::{Child, Command, Stdio},
     sync::{Arc, Mutex},
-    thread, time::Duration,
+    thread,
+    time::Duration,
 };
 
 use nix::sys::socket::{ControlMessage, MsgFlags, sendmsg};
@@ -19,7 +20,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
     api::{Api, ApiHolder},
-    binder::Binder,
+    binder::{self, Configs},
     compositor_interface::{self, CompositorInterface, ScreenSpace},
     input::Keybind,
     message::{MsgToInput, MsgToUInput, MsgToWorker},
@@ -75,7 +76,9 @@ fn start_priv_process(socket_priv_end: UnixStream) -> Child {
 
 /// Entry point into the app.
 /// Starts the necessary process and threads.
-pub fn launch_bindings(mut binder: Binder) {
+/// TODO: Figure out what to do if an instance is already running. 2 processes cannot both capture a
+/// keyboard.
+pub fn launch(mut binder: Configs) {
     let (socket_core_end, socket_priv_end) = std::os::unix::net::UnixStream::pair().unwrap();
     let mut child = start_priv_process(socket_priv_end);
 
@@ -127,11 +130,9 @@ pub fn launch_bindings(mut binder: Binder) {
 
     // Send the bindings over.
     let mut keybinds = HashSet::new();
-    for binding in binder.bindings() {
-        keybinds.insert(binding.0.clone());
+    for (keybind, _) in binder.bindings() {
+        keybinds.insert(keybind.clone());
     }
-    keybinds.insert(binder.toggle_bindings_key());
-    keybinds.insert(binder.exit_key());
     input_socket
         .send(&MsgToInput::ChangeBindings(keybinds.clone()))
         .expect("postcard should be able to serialize");
@@ -143,7 +144,9 @@ pub fn launch_bindings(mut binder: Binder) {
         .expect("thread pool should have been initialized");
     // Listen to input.
     {
-        let mut input_socket = input_socket.try_clone().expect("should be able to clone the [`WrappedSocket`]");
+        let mut input_socket = input_socket
+            .try_clone()
+            .expect("should be able to clone the [`WrappedSocket`]");
         thread::spawn(move || {
             loop {
                 let key_event_res = input_socket.receive();
@@ -162,13 +165,34 @@ pub fn launch_bindings(mut binder: Binder) {
                         }
                     },
                 };
-                let Some(closure) = binder.bindings().get(&key_event).cloned() else {
-                    if key_event == binder.toggle_bindings_key() {
+                let Some(action) = binder.bindings().get(&key_event).cloned() else {
+                    eprintln!("key received from input is not bound: '{key_event:?}'");
+                    break;
+                };
+                match action {
+                    binder::Action::Closure(closure) => {
+                        // Spawn closure with an [`ApiHolder`].
+                        match api_instances.lock().expect("should yield lock").pop() {
+                            Some(api) => {
+                                let api_holder = ApiHolder::new(api, api_instances.clone());
+                                pool.spawn(move || closure(&api_holder));
+                            }
+                            None => println!("Not enough sockets/threads, skipping key..."),
+                        }
+                    }
+                    binder::Action::TogglePauseClosures => {
                         binder.set_paused(!binder.paused());
                         if binder.paused() {
                             let mut new_keybinds = HashSet::new();
-                            new_keybinds.insert(binder.toggle_bindings_key());
-                            new_keybinds.insert(binder.exit_key());
+                            for (keybind, action) in binder.bindings() {
+                                match action {
+                                    binder::Action::Closure(_) => continue,
+                                    _ => {
+                                        new_keybinds.insert(*keybind);
+                                        continue;
+                                    }
+                                }
+                            }
                             input_socket
                                 .send(&MsgToInput::ChangeBindings(new_keybinds))
                                 .expect("postcard should be able to serialize");
@@ -177,22 +201,14 @@ pub fn launch_bindings(mut binder: Binder) {
                                 .send(&MsgToInput::ChangeBindings(keybinds.clone()))
                                 .expect("postcard should be able to serialize");
                         }
-                        continue;
-                    } else if key_event == binder.exit_key() {
+                    }
+                    binder::Action::MacroRecordingStart => todo!(),
+                    binder::Action::MacroRecordingStop => todo!(),
+                    binder::Action::Exit => {
                         println!("Process terminated by user");
                         // TODO: Exit more gracefully.
                         std::process::exit(0);
                     }
-                    eprintln!("key received from input is not bound: '{key_event:?}'");
-                    break;
-                };
-                // Spawn closure with an [`ApiHolder`].
-                match api_instances.lock().expect("should yield lock").pop() {
-                    Some(api) => {
-                        let api_holder = ApiHolder::new(api, api_instances.clone());
-                        pool.spawn(move || closure(&api_holder));
-                    }
-                    None => println!("Not enough sockets/threads, skipping key..."),
                 }
             }
         });

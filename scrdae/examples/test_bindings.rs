@@ -6,15 +6,15 @@ use std::{
 
 use libdae::{
     AbsoluteAxisCode, AppliedModifiers, KeyCode, RelativeAxisCode, app,
-    binder::Binder,
+    binder::{self, Configs},
     input::{KeyAction, KeyState, Keybind, MouseAbsAction, MouseAction, MouseRelAction},
     modifiers::{self},
 };
 
 fn main() {
-    let mut binder = Binder::new(2);
+    let mut binder = Configs::new(2);
 
-    binder.create_binding(
+    binder.create_closure_binding(
         Keybind::new(KeyCode::KEY_A, KeyState::Pressed, modifiers::LEFT_SHIFT),
         {
             let kep = KeyAction::new(KeyCode::KEY_C, KeyState::Pressed);
@@ -35,7 +35,7 @@ fn main() {
             }
         },
     );
-    binder.create_binding(
+    binder.create_closure_binding(
         Keybind::new(KeyCode::KEY_EQUAL, KeyState::Pressed, modifiers::NONE),
         {
             move |api| {
@@ -43,7 +43,7 @@ fn main() {
             }
         },
     );
-    binder.create_binding(
+    binder.create_closure_binding(
         Keybind::new(KeyCode::KEY_Q, KeyState::Pressed, modifiers::LEFT_SHIFT),
         {
             move |api| {
@@ -54,7 +54,7 @@ fn main() {
             }
         },
     );
-    binder.create_binding(
+    binder.create_closure_binding(
         Keybind::new(KeyCode::KEY_W, KeyState::Pressed, modifiers::LEFT_SHIFT),
         {
             move |api| {
@@ -65,7 +65,7 @@ fn main() {
             }
         },
     );
-    binder.create_binding(
+    binder.create_closure_binding(
         Keybind::new(KeyCode::KEY_SPACE, KeyState::Pressed, modifiers::NONE),
         {
             move |api| {
@@ -73,7 +73,7 @@ fn main() {
             }
         },
     );
-    binder.create_binding(
+    binder.create_closure_binding(
         Keybind::new(KeyCode::KEY_P, KeyState::Pressed, modifiers::LEFT_SHIFT),
         {
             move |api| {
@@ -81,10 +81,16 @@ fn main() {
             }
         },
     );
-    binder.set_exit_key(Keybind::new(
+    // Pause and exit binding.
+    binder.create_binding(Keybind::new(
         KeyCode::KEY_PAUSE,
         KeyState::Pressed,
         modifiers::RIGHT_SHIFT,
-    ));
-    app::launch_bindings(binder);
+    ), binder::Action::Exit);
+    binder.create_binding(Keybind::new(
+        KeyCode::KEY_PAUSE,
+        KeyState::Pressed,
+        modifiers::NONE,
+    ), binder::Action::TogglePauseClosures);
+    app::launch(binder);
 }
