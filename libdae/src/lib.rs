@@ -1,4 +1,4 @@
-pub mod binder;
+pub mod configs;
 #[doc(hidden)]
 pub mod app;
 pub mod input;

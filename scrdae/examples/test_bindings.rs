@@ -6,7 +6,7 @@ use std::{
 
 use libdae::{
     AbsoluteAxisCode, AppliedModifiers, KeyCode, RelativeAxisCode, app,
-    binder::{self, Configs},
+    configs::{self, Configs},
     input::{KeyAction, KeyState, Keybind, MouseAbsAction, MouseAction, MouseRelAction},
     modifiers::{self},
 };
@@ -86,11 +86,11 @@ fn main() {
         KeyCode::KEY_PAUSE,
         KeyState::Pressed,
         modifiers::RIGHT_SHIFT,
-    ), binder::Action::Exit);
+    ), configs::Action::Exit);
     binder.create_binding(Keybind::new(
         KeyCode::KEY_PAUSE,
         KeyState::Pressed,
         modifiers::NONE,
-    ), binder::Action::TogglePauseClosures);
+    ), configs::Action::TogglePauseClosures);
     app::launch(binder);
 }

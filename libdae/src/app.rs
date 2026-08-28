@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
     api::{Api, ApiHolder},
-    binder::{self, Configs},
+    configs::{self, Configs},
     compositor_interface::{self, CompositorInterface, ScreenSpace},
     input::Keybind,
     message::{MsgToInput, MsgToUInput, MsgToWorker},
@@ -170,7 +170,7 @@ pub fn launch(mut binder: Configs) {
                     break;
                 };
                 match action {
-                    binder::Action::Closure(closure) => {
+                    configs::Action::Closure(closure) => {
                         // Spawn closure with an [`ApiHolder`].
                         match api_instances.lock().expect("should yield lock").pop() {
                             Some(api) => {
@@ -180,13 +180,13 @@ pub fn launch(mut binder: Configs) {
                             None => println!("Not enough sockets/threads, skipping key..."),
                         }
                     }
-                    binder::Action::TogglePauseClosures => {
+                    configs::Action::TogglePauseClosures => {
                         binder.set_paused(!binder.paused());
                         if binder.paused() {
                             let mut new_keybinds = HashSet::new();
                             for (keybind, action) in binder.bindings() {
                                 match action {
-                                    binder::Action::Closure(_) => continue,
+                                    configs::Action::Closure(_) => continue,
                                     _ => {
                                         new_keybinds.insert(*keybind);
                                         continue;
@@ -202,9 +202,9 @@ pub fn launch(mut binder: Configs) {
                                 .expect("postcard should be able to serialize");
                         }
                     }
-                    binder::Action::MacroRecordingStart => todo!(),
-                    binder::Action::MacroRecordingStop => todo!(),
-                    binder::Action::Exit => {
+                    configs::Action::MacroRecordingStart => todo!(),
+                    configs::Action::MacroRecordingStop => todo!(),
+                    configs::Action::Exit => {
                         println!("Process terminated by user");
                         // TODO: Exit more gracefully.
                         std::process::exit(0);
