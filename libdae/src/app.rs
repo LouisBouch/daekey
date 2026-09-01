@@ -20,297 +20,315 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
     api::{Api, ApiHolder},
-    configs::{self, Configs},
     compositor_interface::{self, CompositorInterface, ScreenSpace},
+    configs::{self, Configs},
     input::Keybind,
     message::{MsgToInput, MsgToUInput, MsgToWorker},
 };
 
-/// Start the privileged process.
-///
-/// # Arguments
-///
-/// * `socket_priv_end` - Socket that will be used as stdin for the privileged process.
-fn start_priv_process(socket_priv_end: UnixStream) -> Child {
-    let cur_bin_path = std::env::current_exe().unwrap();
-    let req_bin_dir = cur_bin_path.parent().unwrap().parent().unwrap();
-    let priv_handler_bin_path = req_bin_dir.join("priv_handler");
-
-    let uid = std::env::var("USER").expect("user id should be fetchable");
-
-    // Allow new group to access uinput.
-    let ex = "command should run successfully";
-    Command::new("sudo")
-        .args(["groupadd", "-f", "uinput"])
-        .status()
-        .expect(ex);
-    Command::new("sudo")
-        .args(["chgrp", "uinput", "/dev/uinput"])
-        .status()
-        .expect(ex);
-    Command::new("sudo")
-        .args(["chmod", "660", "/dev/uinput"])
-        .status()
-        .expect(ex);
-
-    let fd_socket_priv_end = socket_priv_end.into_raw_fd();
-
-    // Launch privileged process with necessary permissions.
-    Command::new("sudo")
-        .args([
-            "setpriv",
-            "--groups",
-            "input,uinput",
-            "--ruid",
-            &uid,
-            "--rgid",
-            &uid,
-            priv_handler_bin_path
-                .to_str()
-                .expect("path should be valid"),
-        ])
-        .stdin(unsafe { Stdio::from_raw_fd(fd_socket_priv_end) })
-        .spawn()
-        .expect("command should not error out")
+/// State of the app with its configs.
+pub struct App {
+    // TODO: Use App's fields instead of the ones passed in at launch.
+    /// The immutable configs of the app.
+    configs: Configs,
+    /// Whether the closures are unbound from their keybinds.
+    closures_unbound: bool,
 }
+impl App {
+    fn closures_unbound(&self) -> bool {
+        self.closures_unbound
+    }
+    fn set_closures_unbound(&mut self, unbound: bool) {
+        self.closures_unbound = unbound;
+    }
+    /// Start the privileged process.
+    ///
+    /// # Arguments
+    ///
+    /// * `socket_priv_end` - Socket that will be used as stdin for the privileged process.
+    fn start_priv_process(socket_priv_end: UnixStream) -> Child {
+        let cur_bin_path = std::env::current_exe().unwrap();
+        let req_bin_dir = cur_bin_path.parent().unwrap().parent().unwrap();
+        let priv_handler_bin_path = req_bin_dir.join("priv_handler");
 
-/// Entry point into the app.
-/// Starts the necessary process and threads.
-/// TODO: Figure out what to do if an instance is already running. 2 processes cannot both capture a
-/// keyboard.
-pub fn launch(mut binder: Configs) {
-    let (socket_core_end, socket_priv_end) = std::os::unix::net::UnixStream::pair().unwrap();
-    let mut child = start_priv_process(socket_priv_end);
+        let uid = std::env::var("USER").expect("user id should be fetchable");
 
-    let (cmp_intf, upd_rec) = CompositorInterface::init();
-    //TODO: if no screen info, just disable some functionalities.
-    let screen_info = cmp_intf
-        .req_screen_info()
-        .expect("screen info should be available");
-    let screen_space = compositor_interface::ScreenSpace::from_monitors(&screen_info);
+        // Allow new group to access uinput.
+        let ex = "command should run successfully";
+        Command::new("sudo")
+            .args(["groupadd", "-f", "uinput"])
+            .status()
+            .expect(ex);
+        Command::new("sudo")
+            .args(["chgrp", "uinput", "/dev/uinput"])
+            .status()
+            .expect(ex);
+        Command::new("sudo")
+            .args(["chmod", "660", "/dev/uinput"])
+            .status()
+            .expect(ex);
 
-    // Notify the privileged process of the context.
-    let context = SetupContext {
-        nb_threads: binder.max_threads(),
-        screen_space: screen_space.clone(),
-        min_mouse_poll_interval: binder.min_mouse_poll_interval(),
-    };
-    postcard::to_io(&context, &socket_core_end).expect("postcard should be able to serialize");
-    // Wait for context acknowledgement from the privileged process, otherwise the ancillary data
-    // from socket creation will get tacked on to the last message sent.
-    let _ack: bool = postcard::from_io((&socket_core_end, &mut [0; 256]))
-        .expect("priv process should have acked when it received context")
-        .0;
+        let fd_socket_priv_end = socket_priv_end.into_raw_fd();
 
-    // Create sockets and send them over to the child.
-    let mut input_socket = None;
-    let mut uinput_socket = None;
-    let mut worker_sockets = Vec::new();
-    let sockets = share_sockets(&socket_core_end, binder.max_threads())
-        .expect("sockets should be created and sent successfully");
-    for socket in sockets {
-        match socket {
-            WrappedSocketBag::WorkerCore(wrapped_socket) => worker_sockets.push(wrapped_socket),
-            WrappedSocketBag::InputCore(wrapped_socket) => input_socket = Some(wrapped_socket),
-            WrappedSocketBag::UInputCore(wrapped_socket) => uinput_socket = Some(wrapped_socket),
-            _ => eprintln!("There should not be any child socket in the core: {socket:?}"),
+        // Launch privileged process with necessary permissions.
+        Command::new("sudo")
+            .args([
+                "setpriv",
+                "--groups",
+                "input,uinput",
+                "--ruid",
+                &uid,
+                "--rgid",
+                &uid,
+                priv_handler_bin_path
+                    .to_str()
+                    .expect("path should be valid"),
+            ])
+            .stdin(unsafe { Stdio::from_raw_fd(fd_socket_priv_end) })
+            .spawn()
+            .expect("command should not error out")
+    }
+
+    /// Entry point into the app.
+    /// Starts the necessary process and threads.
+    /// TODO: Figure out what to do if an instance is already running. 2 processes cannot both capture a
+    /// keyboard.
+    pub fn launch(mut configs: Configs) {
+        let (socket_core_end, socket_priv_end) = std::os::unix::net::UnixStream::pair().unwrap();
+        let mut child = App::start_priv_process(socket_priv_end);
+
+        let (cmp_intf, upd_rec) = CompositorInterface::init();
+        //TODO: if no screen info, just disable some functionalities.
+        let screen_info = cmp_intf
+            .req_screen_info()
+            .expect("screen info should be available");
+        let screen_space = compositor_interface::ScreenSpace::from_monitors(&screen_info);
+
+        // Notify the privileged process of the context.
+        let context = SetupContext {
+            nb_threads: configs.max_threads(),
+            screen_space: screen_space.clone(),
+            min_mouse_poll_interval: configs.min_mouse_poll_interval(),
+        };
+        postcard::to_io(&context, &socket_core_end).expect("postcard should be able to serialize");
+        // Wait for context acknowledgement from the privileged process, otherwise the ancillary data
+        // from socket creation will get tacked on to the last message sent.
+        let _ack: bool = postcard::from_io((&socket_core_end, &mut [0; 256]))
+            .expect("priv process should have acked when it received context")
+            .0;
+
+        // Create sockets and send them over to the child.
+        let mut input_socket = None;
+        let mut uinput_socket = None;
+        let mut worker_sockets = Vec::new();
+        let sockets = App::share_sockets(&socket_core_end, configs.max_threads())
+            .expect("sockets should be created and sent successfully");
+        for socket in sockets {
+            match socket {
+                WrappedSocketBag::WorkerCore(wrapped_socket) => worker_sockets.push(wrapped_socket),
+                WrappedSocketBag::InputCore(wrapped_socket) => input_socket = Some(wrapped_socket),
+                WrappedSocketBag::UInputCore(wrapped_socket) => {
+                    uinput_socket = Some(wrapped_socket)
+                }
+                _ => eprintln!("There should not be any child socket in the core: {socket:?}"),
+            }
         }
-    }
-    let (input_socket, uinput_socket) = (
-        input_socket.expect("input_socket should be initialized"),
-        uinput_socket.expect("uinput_socket should be initialized"),
-    );
-    let api_instances: Arc<Mutex<Vec<Api>>> = Arc::new(Mutex::new(Vec::new()));
-    for socket in worker_sockets {
-        api_instances
-            .lock()
-            .expect("mutex should lock")
-            .push(Api::new(socket, cmp_intf.clone()));
-    }
+        let (input_socket, uinput_socket) = (
+            input_socket.expect("input_socket should be initialized"),
+            uinput_socket.expect("uinput_socket should be initialized"),
+        );
+        let api_instances: Arc<Mutex<Vec<Api>>> = Arc::new(Mutex::new(Vec::new()));
+        for socket in worker_sockets {
+            api_instances
+                .lock()
+                .expect("mutex should lock")
+                .push(Api::new(socket, cmp_intf.clone()));
+        }
 
-    // Send the bindings over.
-    let mut keybinds = HashSet::new();
-    for (keybind, _) in binder.bindings() {
-        keybinds.insert(keybind.clone());
-    }
-    input_socket
-        .send(&MsgToInput::ChangeBindings(keybinds.clone()))
-        .expect("postcard should be able to serialize");
+        // Send the bindings over.
+        let mut keybinds = HashSet::new();
+        for (keybind, _) in configs.bindings() {
+            keybinds.insert(keybind.clone());
+        }
+        input_socket
+            .send(&MsgToInput::ChangeBindings(keybinds.clone()))
+            .expect("postcard should be able to serialize");
 
-    // Start thread pool.
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(binder.max_threads() as usize)
-        .build()
-        .expect("thread pool should have been initialized");
-    // Listen to input.
-    {
-        let mut input_socket = input_socket
-            .try_clone()
-            .expect("should be able to clone the [`WrappedSocket`]");
-        thread::spawn(move || {
-            loop {
-                let key_event_res = input_socket.receive();
-                let key_event: Keybind = match key_event_res {
-                    Ok(v) => v,
-                    Err(e) => match e {
-                        postcard::Error::DeserializeUnexpectedEnd => {
-                            eprintln!("child process died, aborting: '{e}'");
-                            std::process::exit(1);
-                        }
-                        _ => {
-                            eprintln!(
-                                "unexpected error, could not read from socket, aborting: '{e}'"
-                            );
-                            std::process::exit(1);
-                        }
-                    },
-                };
-                let Some(action) = binder.bindings().get(&key_event).cloned() else {
-                    eprintln!("key received from input is not bound: '{key_event:?}'");
-                    break;
-                };
-                match action {
-                    configs::Action::Closure(closure) => {
-                        // Spawn closure with an [`ApiHolder`].
-                        match api_instances.lock().expect("should yield lock").pop() {
-                            Some(api) => {
-                                let api_holder = ApiHolder::new(api, api_instances.clone());
-                                pool.spawn(move || closure(&api_holder));
+        // Start thread pool.
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(configs.max_threads() as usize)
+            .build()
+            .expect("thread pool should have been initialized");
+        // Listen to input.
+        {
+            let mut input_socket = input_socket
+                .try_clone()
+                .expect("should be able to clone the [`WrappedSocket`]");
+            thread::spawn(move || {
+                loop {
+                    let key_event_res = input_socket.receive();
+                    let key_event: Keybind = match key_event_res {
+                        Ok(v) => v,
+                        Err(e) => match e {
+                            postcard::Error::DeserializeUnexpectedEnd => {
+                                eprintln!("child process died, aborting: '{e}'");
+                                std::process::exit(1);
                             }
-                            None => println!("Not enough sockets/threads, skipping key..."),
+                            _ => {
+                                eprintln!(
+                                    "unexpected error, could not read from socket, aborting: '{e}'"
+                                );
+                                std::process::exit(1);
+                            }
+                        },
+                    };
+                    let Some(action) = configs.bindings().get(&key_event).cloned() else {
+                        eprintln!("key received from input is not bound: '{key_event:?}'");
+                        break;
+                    };
+                    match action {
+                        configs::Action::Closure(closure) => {
+                            // Spawn closure with an [`ApiHolder`].
+                            match api_instances.lock().expect("should yield lock").pop() {
+                                Some(api) => {
+                                    let api_holder = ApiHolder::new(api, api_instances.clone());
+                                    pool.spawn(move || closure(&api_holder));
+                                }
+                                None => println!("Not enough sockets/threads, skipping key..."),
+                            }
                         }
-                    }
-                    configs::Action::TogglePauseClosures => {
-                        binder.set_paused(!binder.paused());
-                        if binder.paused() {
-                            let mut new_keybinds = HashSet::new();
-                            for (keybind, action) in binder.bindings() {
-                                match action {
-                                    configs::Action::Closure(_) => continue,
-                                    _ => {
-                                        new_keybinds.insert(*keybind);
-                                        continue;
+                        configs::Action::TogglePauseClosures => {
+                            configs.set_paused(!configs.paused());
+                            if configs.paused() {
+                                let mut new_keybinds = HashSet::new();
+                                for (keybind, action) in configs.bindings() {
+                                    match action {
+                                        configs::Action::Closure(_) => continue,
+                                        _ => {
+                                            new_keybinds.insert(*keybind);
+                                            continue;
+                                        }
                                     }
                                 }
+                                input_socket
+                                    .send(&MsgToInput::ChangeBindings(new_keybinds))
+                                    .expect("postcard should be able to serialize");
+                            } else {
+                                input_socket
+                                    .send(&MsgToInput::ChangeBindings(keybinds.clone()))
+                                    .expect("postcard should be able to serialize");
                             }
-                            input_socket
-                                .send(&MsgToInput::ChangeBindings(new_keybinds))
-                                .expect("postcard should be able to serialize");
-                        } else {
-                            input_socket
-                                .send(&MsgToInput::ChangeBindings(keybinds.clone()))
-                                .expect("postcard should be able to serialize");
+                        }
+                        configs::Action::MacroRecordingStart => todo!(),
+                        configs::Action::MacroRecordingStop => todo!(),
+                        configs::Action::Exit => {
+                            println!("Process terminated by user");
+                            // TODO: Exit more gracefully.
+                            std::process::exit(0);
                         }
                     }
-                    configs::Action::MacroRecordingStart => todo!(),
-                    configs::Action::MacroRecordingStop => todo!(),
-                    configs::Action::Exit => {
-                        println!("Process terminated by user");
-                        // TODO: Exit more gracefully.
-                        std::process::exit(0);
+                }
+            });
+        }
+        // Listen for compositor updates.
+        let exp = "should be able to send message to the child process";
+        loop {
+            match upd_rec.recv() {
+                Ok(v) => match v {
+                    compositor_interface::compositor_client::CompUpdate::ScreenLayoutChanged(
+                        screen_infos,
+                    ) => uinput_socket
+                        .send(&MsgToUInput::UpdateScreenSpace(ScreenSpace::from_monitors(
+                            &screen_infos,
+                        )))
+                        .expect(exp),
+                    compositor_interface::compositor_client::CompUpdate::PointersChanged => {
+                        input_socket.send(&MsgToInput::PointersChanged).expect(exp)
                     }
+                    compositor_interface::compositor_client::CompUpdate::KeyboardsChanged => {
+                        input_socket.send(&MsgToInput::KeyboardChanged).expect(exp)
+                    }
+                },
+                Err(e) => {
+                    eprintln!("Error while receiving message from compositor: {e}");
+                    break;
                 }
-            }
-        });
-    }
-    // Listen for compositor updates.
-    let exp = "should be able to send message to the child process";
-    loop {
-        match upd_rec.recv() {
-            Ok(v) => match v {
-                compositor_interface::compositor_client::CompUpdate::ScreenLayoutChanged(
-                    screen_infos,
-                ) => uinput_socket
-                    .send(&MsgToUInput::UpdateScreenSpace(ScreenSpace::from_monitors(
-                        &screen_infos,
-                    )))
-                    .expect(exp),
-                compositor_interface::compositor_client::CompUpdate::PointersChanged => {
-                    input_socket.send(&MsgToInput::PointersChanged).expect(exp)
-                }
-                compositor_interface::compositor_client::CompUpdate::KeyboardsChanged => {
-                    input_socket.send(&MsgToInput::KeyboardChanged).expect(exp)
-                }
-            },
-            Err(e) => {
-                eprintln!("Error while receiving message from compositor: {e}");
-                break;
             }
         }
-    }
-    // Listen for updates from the compositor.
+        // Listen for updates from the compositor.
 
-    child.wait().unwrap();
-}
-/// Create and share sockets that the privileged process will use.
-///
-/// # Arguments
-///
-/// * `child_stdin` - When to send the created sockets to.
-/// * `nb_worker_sockets` - Number of sockets to send over to the privileged process.
-fn share_sockets(
-    child_stdin: &UnixStream,
-    nb_worker_sockets: u16,
-) -> std::io::Result<Vec<WrappedSocketBag>> {
-    let mut sockets = Vec::new();
-    let buffer_size = 256;
-    for _ in 0..(nb_worker_sockets) {
-        sockets.push(send_socket(
+        child.wait().unwrap();
+    }
+    /// Create and share sockets that the privileged process will use.
+    ///
+    /// # Arguments
+    ///
+    /// * `child_stdin` - When to send the created sockets to.
+    /// * `nb_worker_sockets` - Number of sockets to send over to the privileged process.
+    fn share_sockets(
+        child_stdin: &UnixStream,
+        nb_worker_sockets: u16,
+    ) -> std::io::Result<Vec<WrappedSocketBag>> {
+        let mut sockets = Vec::new();
+        let buffer_size = 256;
+        for _ in 0..(nb_worker_sockets) {
+            sockets.push(App::send_socket(
+                &child_stdin,
+                SocketType::WorkerCore,
+                SocketType::WorkerPriv,
+                buffer_size,
+            )?);
+        }
+        sockets.push(App::send_socket(
             &child_stdin,
-            SocketType::WorkerCore,
-            SocketType::WorkerPriv,
+            SocketType::InputCore,
+            SocketType::InputPriv,
             buffer_size,
         )?);
+        sockets.push(App::send_socket(
+            &child_stdin,
+            SocketType::UInputCore,
+            SocketType::UInputPriv,
+            buffer_size,
+        )?);
+        Ok(sockets)
     }
-    sockets.push(send_socket(
-        &child_stdin,
-        SocketType::InputCore,
-        SocketType::InputPriv,
-        buffer_size,
-    )?);
-    sockets.push(send_socket(
-        &child_stdin,
-        SocketType::UInputCore,
-        SocketType::UInputPriv,
-        buffer_size,
-    )?);
-    Ok(sockets)
-}
-/// Send a socket over another socket.
-///
-/// # Parameters
-///
-/// * `channel_socket` - The socket over which the new socket will be sent over.
-/// * `socket_type` - The type of socket being sent over. I.e, what it will be used for.
-///
-/// # Return
-///
-/// The end of the socket that can be used to communicate with the sent socket
-///
-fn send_socket(
-    channel_socket: &UnixStream,
-    kept_socket_type: SocketType,
-    sent_socket_type: SocketType,
-    buffer_size: usize,
-) -> std::io::Result<WrappedSocketBag> {
-    let (socket_to_keep, socket_to_send) = std::os::unix::net::UnixStream::pair()?;
-    let socket_child_fd: std::os::fd::RawFd = socket_to_send.as_raw_fd();
-    // Send different payload on input socket.
-    let payload = [sent_socket_type as u8];
-    let iov = [IoSlice::new(&payload)];
-    let cmsg = [ControlMessage::ScmRights(&[socket_child_fd])];
-    sendmsg::<()>(
-        channel_socket.as_raw_fd(),
-        &iov,
-        &cmsg,
-        MsgFlags::empty(),
-        None,
-    )?;
-    Ok(WrappedSocketBag::from_socket_type(
-        socket_to_keep,
-        kept_socket_type,
-        buffer_size,
-    ))
+    /// Send a socket over another socket.
+    ///
+    /// # Parameters
+    ///
+    /// * `channel_socket` - The socket over which the new socket will be sent over.
+    /// * `socket_type` - The type of socket being sent over. I.e, what it will be used for.
+    ///
+    /// # Return
+    ///
+    /// The end of the socket that can be used to communicate with the sent socket
+    ///
+    fn send_socket(
+        channel_socket: &UnixStream,
+        kept_socket_type: SocketType,
+        sent_socket_type: SocketType,
+        buffer_size: usize,
+    ) -> std::io::Result<WrappedSocketBag> {
+        let (socket_to_keep, socket_to_send) = std::os::unix::net::UnixStream::pair()?;
+        let socket_child_fd: std::os::fd::RawFd = socket_to_send.as_raw_fd();
+        // Send different payload on input socket.
+        let payload = [sent_socket_type as u8];
+        let iov = [IoSlice::new(&payload)];
+        let cmsg = [ControlMessage::ScmRights(&[socket_child_fd])];
+        sendmsg::<()>(
+            channel_socket.as_raw_fd(),
+            &iov,
+            &cmsg,
+            MsgFlags::empty(),
+            None,
+        )?;
+        Ok(WrappedSocketBag::from_socket_type(
+            socket_to_keep,
+            kept_socket_type,
+            buffer_size,
+        ))
+    }
 }
 #[doc(hidden)]
 #[derive(Serialize, Deserialize, Debug)]

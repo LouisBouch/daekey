@@ -13,7 +13,10 @@ pub use evdev::KeyCode;
 pub use evdev::{RelativeAxisCode, AbsoluteAxisCode};
 pub use message::AppliedModifiers;
 pub type Pixel = i32;
-// TODO: launch throuhg binary so that i can run the binary in the background.
+
+// TODO: Make privileged process a daemon. Have user launch individual process that request
+// connection through a binary that requries sudo. Once connected, the new user launched app can
+// communicate with the daemon.
 // TODO: Create macro maker. Fetches initiale absolute cursor position on a key press and then
 // record everything that is done. But before doing it, clean up the code a bit.
 

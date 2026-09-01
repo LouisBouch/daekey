@@ -28,7 +28,7 @@ use libdae::{
     message, modifiers,
 };
 use nix::{
-    libc::clock_gettime, poll::{PollFd, PollFlags, PollTimeout, poll}, sys::{time::TimeSpec, timerfd}
+    poll::{PollFd, PollFlags, PollTimeout, poll}, sys::{time::TimeSpec, timerfd}
 };
 
 #[derive(Clone, Copy)]

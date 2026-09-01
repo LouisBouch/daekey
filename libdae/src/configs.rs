@@ -16,6 +16,7 @@ pub enum Action {
     Exit,
 }
 
+
 /// Holds everything necessary for the app to work with bindings.
 // TODO: Rethink structure. Binder holds too much currently and will make it harder to reason about
 // adding macro handling.
@@ -27,6 +28,7 @@ pub struct Configs {
     bindings: HashMap<Keybind, Action>,
     /// Minimum mouse polling interval betwene relative motion events.
     min_mouse_poll_interval: Duration,
+    // TODO: REMOVE THIS FIELD
     /// Whether the keybinds are paused or not.
     paused: bool,
 }
@@ -107,14 +109,15 @@ impl Configs {
     pub fn max_threads(&self) -> u16 {
         self.max_threads
     }
+    // TODO: REMOVE THESE.
     pub fn paused(&self) -> bool {
         self.paused
     }
-    pub fn bindings(&self) -> &HashMap<Keybind, Action> {
-        &self.bindings
-    }
     pub fn set_paused(&mut self, paused: bool) {
         self.paused = paused;
+    }
+    pub fn bindings(&self) -> &HashMap<Keybind, Action> {
+        &self.bindings
     }
     pub fn min_mouse_poll_interval(&self) -> Duration {
         self.min_mouse_poll_interval
