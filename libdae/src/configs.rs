@@ -30,6 +30,15 @@ pub struct Configs {
     min_mouse_poll_interval: Duration,
 }
 impl Configs {
+    /// Create new configs.
+    ///
+    /// # Arguments
+    ///
+    /// * `max_threads` - The maximum amount of cosures that can run concurrently.
+    ///
+    /// # Return
+    ///
+    /// The created [`Configs`].
     pub fn new(max_threads: u16) -> Self {
         Configs {
             max_threads,

@@ -14,45 +14,16 @@ pub use evdev::{RelativeAxisCode, AbsoluteAxisCode};
 pub use message::AppliedModifiers;
 pub type Pixel = i32;
 
-// TODO: Make privileged process a daemon. Have user launch individual process that request
+// TODO: Make privileged process a daemon. Have user launch individual processes that request
 // connection through a binary that requries sudo. Once connected, the new user launched app can
 // communicate with the daemon.
+// Each connection has a single connection to the daemon, and all requests go through it.
+// Make the daemon listen to compositor change and have it send the updated values to the list of connections.
+// Upon connecting, have the daemon send compositor values (like the screen layout an stuff) to the
+// processes connecting to it.
+
 // TODO: Create macro maker. Fetches initiale absolute cursor position on a key press and then
 // record everything that is done. But before doing it, clean up the code a bit.
 
 
-// instead of just hoding the binding in a hashmap, hold them in the trie.
-//
-// Order of things:
-// user creates bindings (hashmap of keyevents with closures)
-// user calls launch with the bindings
-// process launches privileged process and creates stdin and stdout
-// sends to stdin the serialized bindings
-// new process loops listen on stdin
-// when it reeives the bindings, it creates 2 new threads. It also starts listening for commands
-// from the core process. It then sends the required commands to the threads:
-// 1. waits for commands from the thread listening to stdin or from commands from the other input thread.
-// 2. blocks on input and sends keybind code through stdout (keybind code is an integer which
-//    represents a keyevent. the brain only holds integer and closures). If key has no bindings,
-//    send the result directly to the uinput process through crossbeam.
-//
-// create some struct.
-// Have this struct expose a function that takes in a keybind and a closure.
-// Closure takes as a field another special struct.
-// This special struct can be called to send keys to uinput directly.
-// Under the hood, this special struct wraps a channel and it streamlines the usage of the channel.
-// An now, instead of just calling the closure directly, the app needs to call it with the special struct every time.
-// This special struct can easily be clone to allow multiple channels.
-//
-// Make user file a simple .rs file to import?
-
-// /// Filter conditions.
-// #[derive(Serialize, Deserialize, Debug, Eq, Hash, PartialEq, Copy, Clone)]
-// pub enum Filter {
-//     /// Filter through only if it matches exactly.
-//     Exact,
-//     /// Filter through only if it has at least the required items.
-//     AtLeast,
-//     /// Filter through only if it has at most these items.
-//     AtMost,
-// }
+// TODO: instead of just hoding the binding in a hashmap, hold them in a trie?
