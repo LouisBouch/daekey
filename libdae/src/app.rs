@@ -35,6 +35,12 @@ pub struct App {
     closures_unbound: bool,
 }
 impl App {
+    pub fn new(configs: Configs) -> Self {
+        App {
+            configs,
+            closures_unbound: false,
+        }
+    }
     fn closures_unbound(&self) -> bool {
         self.closures_unbound
     }
@@ -93,7 +99,7 @@ impl App {
     /// Starts the necessary process and threads.
     /// TODO: Figure out what to do if an instance is already running. 2 processes cannot both capture a
     /// keyboard.
-    pub fn launch(mut configs: Configs) {
+    pub fn launch(mut self) {
         let (socket_core_end, socket_priv_end) = std::os::unix::net::UnixStream::pair().unwrap();
         let mut child = App::start_priv_process(socket_priv_end);
 
@@ -106,9 +112,9 @@ impl App {
 
         // Notify the privileged process of the context.
         let context = SetupContext {
-            nb_threads: configs.max_threads(),
+            nb_threads: self.configs.max_threads(),
             screen_space: screen_space.clone(),
-            min_mouse_poll_interval: configs.min_mouse_poll_interval(),
+            min_mouse_poll_interval: self.configs.min_mouse_poll_interval(),
         };
         postcard::to_io(&context, &socket_core_end).expect("postcard should be able to serialize");
         // Wait for context acknowledgement from the privileged process, otherwise the ancillary data
@@ -121,7 +127,7 @@ impl App {
         let mut input_socket = None;
         let mut uinput_socket = None;
         let mut worker_sockets = Vec::new();
-        let sockets = App::share_sockets(&socket_core_end, configs.max_threads())
+        let sockets = App::share_sockets(&socket_core_end, self.configs.max_threads())
             .expect("sockets should be created and sent successfully");
         for socket in sockets {
             match socket {
@@ -147,7 +153,7 @@ impl App {
 
         // Send the bindings over.
         let mut keybinds = HashSet::new();
-        for (keybind, _) in configs.bindings() {
+        for (keybind, _) in self.configs.bindings() {
             keybinds.insert(keybind.clone());
         }
         input_socket
@@ -156,10 +162,10 @@ impl App {
 
         // Start thread pool.
         let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(configs.max_threads() as usize)
+            .num_threads(self.configs.max_threads() as usize)
             .build()
             .expect("thread pool should have been initialized");
-        // Listen to input.
+        // Start loop.
         {
             let mut input_socket = input_socket
                 .try_clone()
@@ -182,7 +188,7 @@ impl App {
                             }
                         },
                     };
-                    let Some(action) = configs.bindings().get(&key_event).cloned() else {
+                    let Some(action) = self.configs.bindings().get(&key_event).cloned() else {
                         eprintln!("key received from input is not bound: '{key_event:?}'");
                         break;
                     };
@@ -198,10 +204,10 @@ impl App {
                             }
                         }
                         configs::Action::TogglePauseClosures => {
-                            configs.set_paused(!configs.paused());
-                            if configs.paused() {
+                            self.closures_unbound = !self.closures_unbound;
+                            if self.closures_unbound {
                                 let mut new_keybinds = HashSet::new();
-                                for (keybind, action) in configs.bindings() {
+                                for (keybind, action) in self.configs.bindings() {
                                     match action {
                                         configs::Action::Closure(_) => continue,
                                         _ => {

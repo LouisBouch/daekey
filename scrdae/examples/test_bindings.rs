@@ -92,5 +92,5 @@ fn main() {
         KeyState::Pressed,
         modifiers::NONE,
     ), configs::Action::TogglePauseClosures);
-    app::App::launch(binder);
+    app::App::new(binder).launch();
 }

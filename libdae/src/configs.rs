@@ -28,9 +28,6 @@ pub struct Configs {
     bindings: HashMap<Keybind, Action>,
     /// Minimum mouse polling interval betwene relative motion events.
     min_mouse_poll_interval: Duration,
-    // TODO: REMOVE THIS FIELD
-    /// Whether the keybinds are paused or not.
-    paused: bool,
 }
 impl Configs {
     pub fn new(max_threads: u16) -> Self {
@@ -39,7 +36,6 @@ impl Configs {
             bindings: HashMap::new(),
             // By default, allow any polling rate.
             min_mouse_poll_interval: Duration::ZERO,
-            paused: false,
         }
     }
     /// Create new keybinding with closure.
@@ -108,13 +104,6 @@ impl Configs {
 
     pub fn max_threads(&self) -> u16 {
         self.max_threads
-    }
-    // TODO: REMOVE THESE.
-    pub fn paused(&self) -> bool {
-        self.paused
-    }
-    pub fn set_paused(&mut self, paused: bool) {
-        self.paused = paused;
     }
     pub fn bindings(&self) -> &HashMap<Keybind, Action> {
         &self.bindings

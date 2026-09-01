@@ -18,5 +18,5 @@ fn main() {
         configs::Action::Exit,
     );
     binder.set_rel_mouse_polling_interval(Duration::from_millis(1000));
-    app::App::launch(binder);
+    app::App::new(binder).launch();
 }
