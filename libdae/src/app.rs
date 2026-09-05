@@ -97,8 +97,6 @@ impl App {
 
     /// Entry point into the app.
     /// Starts the necessary process and threads.
-    /// TODO: Figure out what to do if an instance is already running. 2 processes cannot both capture a
-    /// keyboard.
     pub fn launch(mut self) {
         let (socket_core_end, socket_priv_end) = std::os::unix::net::UnixStream::pair().unwrap();
         let mut child = App::start_priv_process(socket_priv_end);

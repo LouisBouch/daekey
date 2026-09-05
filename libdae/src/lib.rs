@@ -14,22 +14,6 @@ pub use evdev::{RelativeAxisCode, AbsoluteAxisCode};
 pub use message::AppliedModifiers;
 pub type Pixel = i32;
 
-// TODO: Order of things:
-//
-// 1. Remove creation of multiple sockets and keep only one socket to talk between the processes.
-//    Have one thread on the daemon side listen for message and dispatch the messages to the
-//    appropriate thread. HAve the input manager listen to input devices and a single byte through fd in order
-//    to wakeup for crossbeam messages.
-// 2. Make the privileged process listen for compositor changes and push them to the
-//    core/unprivileged process. Also, have the daemon send the initial compositor values.
-// 3. Make the daemon create a single connection socket in the /run folder and only allow rooted
-//    processes to access it.
-// 4. Make the daemon independent from the core, that way they can be launched independently, and
-//    ensure the core, which is now just a normal connection to the daemon, can find the daemon's socket.
-// 5. Instead of shelling out to sudo for anything, always start with sudo privileges, and drop to
-//    minimum privileges as soon as possible (after setpriv for daemon and after connection to the
-//    socket for the "core" connections).
-
 // TODO: Create macro maker. Fetches initiale absolute cursor position on a key press and then
 // record everything that is done. But before doing it, clean up the code a bit.
 
