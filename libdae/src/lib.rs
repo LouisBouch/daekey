@@ -17,6 +17,9 @@ pub type Pixel = i32;
 // TODO: Order of things:
 //
 // 1. Remove creation of multiple sockets and keep only one socket to talk between the processes.
+//    Have one thread on the daemon side listen for message and dispatch the messages to the
+//    appropriate thread. HAve the input manager listen to input devices and a single byte through fd in order
+//    to wakeup for crossbeam messages.
 // 2. Make the privileged process listen for compositor changes and push them to the
 //    core/unprivileged process. Also, have the daemon send the initial compositor values.
 // 3. Make the daemon create a single connection socket in the /run folder and only allow rooted
