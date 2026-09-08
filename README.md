@@ -23,7 +23,7 @@ following code changes will be made:
 
 - [ ] Unbind the daemon from the core process. Currently, they must run
   together, so allow them to just run independently. Run the daemon with
-  input,uinput and daekey groups.
+  input,uinput and daekey groups using a service.
 - [ ] Each connection to the daemon should be done through a single socket
   instead of the many there currently are. This socket will have daekey:dakey
   permissions. To access this socket from the connecting process, it can simply
