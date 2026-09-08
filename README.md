@@ -26,13 +26,14 @@ following code changes will be made:
   input,uinput and daekey groups.
 - [ ] Each connection to the daemon should be done through a single socket
   instead of the many there currently are. This socket will have daekey:dakey
-  permissions and will be connected to by a binary helper that will be launched
-  by the script and will then return the socket back to the script. Moreover,
-  the daemon's input manager will listen to input devices AND to a single byte
-  fd that will notify it when it received a message from a user's script. So the
-  user sends a message through the socket, the message manager sends message
-  through crossbeam to the input manager AND activates the fd byte so that the
-  input manager can act on it, as it will only poll fds.
+  permissions. To access this socket from the connecting process, it can simply
+  re-exec itself with sudo privileges and a speciall flag that will fetch the
+  socket and return it with SCM_RIGHTS.
+- [ ] The daemon's input manager will listen to input devices AND to a single
+  byte fd that will notify it when it received a message from a user's script.
+  So the user sends a message through the socket, the message manager sends
+  message through crossbeam to the input manager AND activates the fd byte so
+  that the input manager can act on it, as it will only poll fds.
 - [ ] Make the daemon listen for compositor changes (like the screen layout) and
   push them to the connected users afterwards. Also give the scripts the
   compositor state at the start.
