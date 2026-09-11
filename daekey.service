@@ -1,0 +1,18 @@
+[Unit]
+Description=Used to listen to devices and send inputs to virtual devices
+After=systemd-udevd.service
+Wants=systemd-udevd.service
+
+[Service]
+User=daekey
+Group=daekey
+SupplementaryGroups=uinput input
+Type=simple
+ExecStart=/usr/local/sbin/daekey
+
+# Additional security
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

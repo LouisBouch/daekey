@@ -9,6 +9,9 @@ if [[ $EUID -gt 0 ]]; then
   exit 1
 fi
 
+# Run script from location of this script.
+cd "$(dirname -- "${BASH_SOURCE[0]}")" || exit 1
+
 echo -e "\033[33mWARNING:\033[0m If they already exist (they shouldn't), this script will overwrite '\033[1m/etc/modules-load.d/uinput.conf\033[0m' and '\033[1m/etc/udev/rules.d/uinput.rules\033[0m'"
 
 while true; do
@@ -20,17 +23,17 @@ while true; do
   esac
 done
 
-# Define groups that will be created.
+# Define groups/users that will be created.
 uinput_group="uinput"
-app_group="daekey"
+app_user_group="daekey"
 
 echo -e "\033[33mCreating groups... \033[0m"
 # Create them if they dont exist.
 getent group "$uinput_group" || groupadd "$uinput_group"
-getent group "$app_group" || groupadd "$app_group"
+getent group "$app_user_group" || groupadd "$app_user_group"
 
 # Create the daemon user.
-getent passwd "$app_group" || useradd --system -g "$app_group" --no-create-home --shell /bin/false "$app_group"
+getent passwd "$app_user_group" || useradd --system -g "$app_user_group" --no-create-home --shell /usr/sbin/nologin "$app_user_group"
 
 echo -e "\033[33mCreating rules... \033[0m"
 # Ensure the uinput kernel module will load on boot.
@@ -45,4 +48,7 @@ echo "SUBSYSTEM==\"misc\", KERNEL==\"uinput\", GROUP=\"$uinput_group\", MODE=\"0
 # Retrigger udev to apply new rules.
 udevadm trigger --subsystem-match=misc --sysname-match=uinput
 
-
+service_name="daekey.service"
+# Copy service file to proper directory.
+install -m 0644 "$service_name" "/etc/systemd/system/$service_name"
+systemctl daemon-reload
