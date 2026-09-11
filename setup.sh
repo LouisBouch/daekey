@@ -29,7 +29,7 @@ echo -e "\033[33mCreating groups... \033[0m"
 getent group "$uinput_group" || groupadd "$uinput_group"
 getent group "$app_group" || groupadd "$app_group"
 
-# Create the daemon user
+# Create the daemon user.
 getent passwd "$app_group" || useradd --system -g "$app_group" --no-create-home --shell /bin/false "$app_group"
 
 echo -e "\033[33mCreating rules... \033[0m"
