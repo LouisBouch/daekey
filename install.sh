@@ -12,5 +12,5 @@ else
 fi
 
 
-sudo cp target/"$target"/bindae /usr/local/sbin/
+sudo cp target/"$target"/bindae /usr/local/sbin/daekey
 # User must restart the service to use the updated binary.

@@ -43,6 +43,7 @@ echo uinput | tee /etc/modules-load.d/uinput.conf
 modprobe uinput
 
 # Change group of uinput from root to uinput with correct permissions.
+echo -e "\033[33mCreate udev rule for uinput... \033[0m"
 echo "SUBSYSTEM==\"misc\", KERNEL==\"uinput\", GROUP=\"$uinput_group\", MODE=\"0660\"" | tee /etc/udev/rules.d/uinput.rules
 
 # Retrigger udev to apply new rules.
@@ -50,5 +51,6 @@ udevadm trigger --subsystem-match=misc --sysname-match=uinput
 
 service_name="daekey.service"
 # Copy service file to proper directory.
+echo -e "\033[33mInstall service rule... \033[0m"
 install -m 0644 "$service_name" "/etc/systemd/system/$service_name"
 systemctl daemon-reload
