@@ -11,6 +11,6 @@ else
   cargo build --release -p bindae || exit 1
 fi
 
-
+echo -e "\033[32mInstalling binary... \033[0m"
 sudo cp target/"$target"/bindae /usr/local/sbin/daekey
 # User must restart the service to use the updated binary.

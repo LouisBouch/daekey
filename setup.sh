@@ -27,7 +27,7 @@ done
 uinput_group="uinput"
 app_user_group="daekey"
 
-echo -e "\033[33mCreating groups... \033[0m"
+echo -e "\033[32mCreating groups... \033[0m"
 # Create them if they dont exist.
 getent group "$uinput_group" || groupadd "$uinput_group"
 getent group "$app_user_group" || groupadd "$app_user_group"
@@ -35,22 +35,22 @@ getent group "$app_user_group" || groupadd "$app_user_group"
 # Create the daemon user.
 getent passwd "$app_user_group" || useradd --system -g "$app_user_group" --no-create-home --shell /usr/sbin/nologin "$app_user_group"
 
-echo -e "\033[33mCreating rules... \033[0m"
+echo -e "\033[32mEnsuring uinput will load on boot... \033[0m"
 # Ensure the uinput kernel module will load on boot.
-echo uinput | tee /etc/modules-load.d/uinput.conf
+echo uinput | tee /etc/modules-load.d/uinput.conf > /dev/null
 
 # Load the uinput module now, in case it's not already running.
 modprobe uinput
 
 # Change group of uinput from root to uinput with correct permissions.
-echo -e "\033[33mCreate udev rule for uinput... \033[0m"
-echo "SUBSYSTEM==\"misc\", KERNEL==\"uinput\", GROUP=\"$uinput_group\", MODE=\"0660\"" | tee /etc/udev/rules.d/uinput.rules
+echo -e "\033[32mCreating udev rule for uinput... \033[0m"
+echo "SUBSYSTEM==\"misc\", KERNEL==\"uinput\", GROUP=\"$uinput_group\", MODE=\"0660\"" | tee /etc/udev/rules.d/uinput.rules > /dev/null
 
 # Retrigger udev to apply new rules.
 udevadm trigger --subsystem-match=misc --sysname-match=uinput
 
 service_name="daekey.service"
 # Copy service file to proper directory.
-echo -e "\033[33mInstall service rule... \033[0m"
+echo -e "\033[32mInstalling service rule... \033[0m"
 install -m 0644 "$service_name" "/etc/systemd/system/$service_name"
 systemctl daemon-reload
