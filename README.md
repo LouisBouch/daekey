@@ -27,8 +27,8 @@ following code changes will be made:
 - [ ] Each connection to the daemon should be done through a single socket
   instead of the many there currently are. This socket will have daekey:dakey
   permissions. To access this socket from the connecting process, it can simply
-  re-exec itself with sudo privileges and a speciall flag that will fetch the
-  socket and return it with SCM_RIGHTS.
+  re-exec the daemon with a speciall flag that will fetch the socket and return
+  it with SCM_RIGHTS. (ensure that no 2 daemon processes can run at the same time).
 - [ ] The daemon's input manager will listen to input devices AND to a single
   byte fd that will notify it when it received a message from a user's script.
   So the user sends a message through the socket, the message manager sends
