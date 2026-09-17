@@ -3,6 +3,7 @@ use std::time::Duration;
 mod manager;
 mod socket;
 mod core;
+pub mod compositor;
 
 fn main() {
     println!("Hello, world!");
