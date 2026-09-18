@@ -1,9 +1,9 @@
 use std::time::Duration;
 
 mod manager;
-mod socket;
+mod ipc;
 mod core;
-pub mod compositor;
+pub mod compositor_interface;
 
 fn main() {
     println!("Hello, world!");
