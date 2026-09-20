@@ -20,14 +20,14 @@ pub fn create_socket_server() -> std::io::Result<UnixListener> {
 /// # Parameters
 ///
 /// * `socket_server` - The server listening for new connections to the daemon.
-/// * `socket_tx` - The channel to send new connection sockets over.
+/// * `connection_tx` - The channel to send new connection sockets over.
 ///
 /// # Return
 ///
 /// The handle for the thread listening for new connections.
 pub fn listen_socket_server(
     socket_server: UnixListener,
-    socket_tx: Sender<UnixStream>,
+    connection_tx: Sender<UnixStream>,
 ) -> JoinHandle<()> {
     std::thread::spawn(move || {
         let mut subsequent_stream_err = 0;
@@ -35,7 +35,7 @@ pub fn listen_socket_server(
             match stream {
                 Ok(stream) => {
                     subsequent_stream_err = 0;
-                    if let Err(e) = socket_tx.send(stream) {
+                    if let Err(e) = connection_tx.send(stream) {
                         eprintln!(
                             "Failed to send new connection, stopping connection listener: {e}"
                         );

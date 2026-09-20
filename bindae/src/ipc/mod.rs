@@ -1,4 +1,5 @@
 //! Defines how the daemon handles its sockets.
 
-mod connector;
+pub mod connector;
+pub mod endpoint_listener;
 
