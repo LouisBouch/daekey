@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 crossbeam = "0.8"
 crossbeam-channel = "0.5"
-# evdev = { version = "0.13.*", features = ["serde"] }
+evdev = { version = "0.13", features = ["serde"] }
 # nix = { version = "0.31", features = ["socket", "uio"] }
 postcard = { version = "1.0.0", features = ["use-std"] }
 # rayon = "1.12"
