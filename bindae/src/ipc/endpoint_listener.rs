@@ -1,5 +1,7 @@
 //! Handles listening of a connected process.
 
+use std::thread::JoinHandle;
+
 use crossbeam_channel::Sender;
 
 use crate::device_interface::{input::InputMessage, uinput::UInputMessage};
@@ -18,3 +20,9 @@ pub struct EndpointListener {
 
 }
 
+impl EndpointListener {
+    /// Launch the connection, which will start listening to the socket.
+    pub fn launch(self) -> JoinHandle<()> {
+        std::thread::spawn(move || {})
+    }
+}

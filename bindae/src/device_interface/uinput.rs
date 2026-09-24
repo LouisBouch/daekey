@@ -21,7 +21,7 @@ impl UInput {
         Self { router_tx, rx }
     }
     /// Launch the interface which will listen to message requests.
-    pub fn launch(&self) -> JoinHandle<()> {
+    pub fn launch(self) -> JoinHandle<()> {
         std::thread::spawn(move || {})
     }
 }

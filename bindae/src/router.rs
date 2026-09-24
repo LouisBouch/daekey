@@ -16,6 +16,16 @@ pub enum DeviceInterfaceMessage {}
 /// Message Received from a [`Connection`].
 pub enum ConnectionMessage {}
 
+/// Holds fields necessary for a [`Connection`].
+struct ConnectionContext {
+    /// Channel connected to [`crate::device_interface::uinput::UInput`].
+    uinput_tx: Sender<UInputMessage>,
+    /// Channel connected to [`crate::device_interface::uinput::Input`].
+    input_tx: Sender<InputMessage>,
+    /// Channel connected to the [`Router`].
+    connection_tx: Sender<ConnectionMessage>,
+}
+
 /// Holds necesary maps to properly pass messages along.
 pub struct Router {
     /// The next id to attribute to a connection/session.
@@ -24,21 +34,15 @@ pub struct Router {
     endpoint_map: HashMap<SessionId, ConnectionTx<message::FromDaemon>>,
     /// List of connection sessions for each [`KeyEvent`].
     subscription_map: HashMap<KeyEvent, Vec<SessionId>>,
-    /// Message from a device interface.
+
+    /// Message receiver from a device interface.
     device_interface_rx: Receiver<DeviceInterfaceMessage>,
-    /// Message from an endpoint connection.
+    /// Message receiver from an endpoint connection.
     connection_rx: Receiver<ConnectionMessage>,
-    /// Receives new connections from the [`Connector`].
+    /// Receives receiver new connections from the [`Connector`].
     connector_rx: Receiver<UnixStream>,
-    /// Channel connected to [`crate::device_interface::uinput::UInput`]. Will be given to each
-    /// connected session.
-    uinput_tx: Sender<UInputMessage>,
-    /// Channel connected to [`crate::device_interface::uinput::Input`]. Will be given to each
-    /// connected session.
-    input_tx: Sender<InputMessage>,
-    /// Channel connected to the [`Router`]. Will be given to each
-    /// connected session.
-    connection_tx: Sender<ConnectionMessage>,
+    /// Will be given to each new [`Connection`].
+    connection_ctx: ConnectionContext,
 }
 
 impl Router {
@@ -48,7 +52,7 @@ impl Router {
         connector_rx: Receiver<UnixStream>,
         uinput_tx: Sender<UInputMessage>,
         input_tx: Sender<InputMessage>,
-        connection_tx: Sender<ConnectionMessage>
+        connection_tx: Sender<ConnectionMessage>,
     ) -> Self {
         Self {
             next_id: 0,
@@ -57,15 +61,45 @@ impl Router {
             device_interface_rx,
             connection_rx,
             connector_rx,
-            uinput_tx,
-            input_tx,
-            connection_tx
+            connection_ctx: ConnectionContext {
+                uinput_tx,
+                input_tx,
+                connection_tx,
+            },
         }
     }
     /// Launch the routing thread of the app, which mostly handles message passing.
-    pub fn launch(&self) -> JoinHandle<()> {
-        // TODO: listen to UInput, Input, the connector AND connections while also being
-        // able to send messages to all of them?
-        std::thread::spawn(move || {})
+    pub fn launch(mut self) -> JoinHandle<()> {
+        std::thread::spawn(move || {
+            loop {
+                crossbeam_channel::select_biased! {
+                    recv(self.device_interface_rx) -> c_mes => {
+                        let m = c_mes.expect("channel should be open");
+                        self.handle_device_interface_message(m);
+                    },
+                    recv(self.connection_rx) -> c_mes => {
+                        match c_mes {
+                            Ok(m) => self.handle_connection_message(m),
+                            Err(e) => eprintln!("unexpected interface shutdown, closing daemon: {e}"),
+                        }
+                    },
+                    recv(self.connector_rx) -> c_mes => {
+                        match c_mes {
+                            Ok(m) => self.launch_new_connection(m),
+                            Err(e) => eprintln!("unexpected connector shutdown, closing daemon: {e}"),
+                        }
+                    },
+                }
+            }
+        })
     }
+    fn handle_device_interface_message(&self, msg: DeviceInterfaceMessage) {
+        match msg {}
+    }
+    fn handle_connection_message(&mut self, msg: ConnectionMessage) {
+        match msg {}
+    }
+    fn launch_new_connection(&mut self, stream: UnixStream) {}
+    /// Shutdown the app.
+    fn exit(mut self) {}
 }

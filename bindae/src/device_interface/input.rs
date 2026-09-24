@@ -40,7 +40,7 @@ impl Input {
         self.used_keys = used_keys
     }
     /// Launch the interface which will listen to input devices and message requests.
-    pub fn launch(&self) -> JoinHandle<()> {
+    pub fn launch(self) -> JoinHandle<()> {
         std::thread::spawn(move || {})
     }
 }
