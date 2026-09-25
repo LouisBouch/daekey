@@ -141,8 +141,3 @@ impl<R: DeserializeOwned> ConnectionRx<R> {
 }
 
 // TODO: A connection that can both send and receive messages?
-
-// TODO:
-// - thread per Connection Rx. Then sends received messages to a logic thread that routes it
-// properly.
-// - same logic thread receives messages from input/uinput that need to be sent to processes.
