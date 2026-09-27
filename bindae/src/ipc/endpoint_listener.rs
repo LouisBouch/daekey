@@ -34,7 +34,7 @@ impl EndpointListener {
         std::thread::spawn(move || {
             loop {
                 match self.connection.recv() {
-                    Ok(m) => self.handle_message(&m),
+                    Ok(m) => self.handle_message(m),
                     Err(e) => {
                         eprintln!("Failed to deserialize message, skipping: {e}");
                     }
@@ -43,8 +43,7 @@ impl EndpointListener {
         })
     }
     /// Handles a message received from the process.
-    pub fn handle_message(&mut self, m: &ipc::message::FromProcess) {
-        // TODO: Match on messages.
-        // match m {}
+    pub fn handle_message(&mut self, msg: ipc::message::FromProcess) {
+        match msg {}
     }
 }
