@@ -3,4 +3,5 @@
 /// Connects to the daemon socket and return to the calling process the newly created socket with
 /// SCM_RIGHTS.
 pub fn launch_connection_helper() {
+    println!("Launched helper");
 }

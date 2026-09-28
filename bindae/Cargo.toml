@@ -11,4 +11,3 @@ serde = { version = "1.0.*", features = ["derive"] }
 # nix = { version = "0.31", features = ["socket", "uio", "poll", "time", "user"] }
 crossbeam = "0.8"
 crossbeam-channel = "0.5"
-clap = "4.6"

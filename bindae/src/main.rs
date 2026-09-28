@@ -1,8 +1,3 @@
-use crate::{
-    device_interface::{input::Input, uinput::UInput},
-    ipc::connector,
-    router::Router,
-};
 
 pub mod ipc;
 pub mod compositor_interface;
@@ -12,8 +7,13 @@ mod connection_helper;
 mod core;
 
 fn main() {
-    // TODO: Use clap to detect if subcommand requiring scm helper is deployed.
-    // let args: Vec<String> = std::env::args().collect();
-    // args.iter().any(|v| v ==)
-    core::launch_daemon();
+    // Obtained by running cargo run --bin bindae -- value
+    let arg = std::env::args().nth(1);
+    let helper_subcommand = "helper";
+    match arg {
+        None => core::launch_daemon(),
+        Some(arg) => if arg == helper_subcommand {
+            connection_helper::launch_connection_helper();
+        },
+    }
 }
