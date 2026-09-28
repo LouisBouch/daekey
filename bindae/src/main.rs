@@ -1,4 +1,3 @@
-
 pub mod ipc;
 pub mod compositor_interface;
 mod device_interface;
