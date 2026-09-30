@@ -13,9 +13,9 @@ use crossbeam_channel::Sender;
 use nix::unistd;
 
 /// Required permissions for the socket's parent.
-const SOCKET_PARENT_PERMISSIONS: u32 = 0o040750;
+const SOCKET_PARENT_PERMISSIONS: u32 = 0o750;
 /// Required group id and user id for the socket's parent.
-const SOCKET_PARENT_GID_AND_UID: &str = "daekey";
+const SOCKET_OWNER_NAME: &str = "daekey";
 
 /// Different types of error that can occur when manipulating the socket server.
 #[derive(Debug)]
@@ -49,7 +49,7 @@ impl Display for SocketServerError {
             SocketServerError::IdLookup(error) => {
                 write!(
                     f,
-                    "Error while fetching the user or group id `{SOCKET_PARENT_GID_AND_UID}` from the system: {error}"
+                    "Error while fetching the user or group id `{SOCKET_OWNER_NAME}` from the system: {error}"
                 )
             }
             SocketServerError::MetadataLookup(path, error) => {
@@ -67,7 +67,7 @@ impl Display for SocketServerError {
             SocketServerError::NoParent(path) => {
                 write!(
                     f,
-                    "The socket's parent directory `{path:?}` does not exist. Try restarting the service?"
+                    "Cannot find the socket's parent directory `{path:?}`. Try restarting the service?"
                 )
             }
             SocketServerError::SocketPathIsDir(path) => {
@@ -79,7 +79,7 @@ impl Display for SocketServerError {
             SocketServerError::RequiredUserOrGroup => {
                 write!(
                     f,
-                    "The required user or group `SOCKET_PARENT_GID_AND_UID` does not exist. It should have been created by the service."
+                    "The required user or group `{SOCKET_OWNER_NAME}` does not exist. It should have been created by the service."
                 )
             },
         }
@@ -100,8 +100,6 @@ impl Error for SocketServerError {
     }
 }
 
-// TODO: Make sure the function works adequately and maybe change how erros are handled to be a bit
-// more idiomatic.
 /// Create the socket server other processes will use to connect to this daemon.
 pub fn create_socket_server() -> Result<UnixListener, SocketServerError> {
     let socket_path = PathBuf::from(libdae::constants::DAEMON_SOCKET_PATH);
@@ -115,18 +113,11 @@ pub fn create_socket_server() -> Result<UnixListener, SocketServerError> {
         .parent()
         .ok_or(SocketServerError::NoParent(socket_path.clone()))?;
 
-    // Remove old socket if it wasn't properly removed last time.
-    if let Err(e) = std::fs::remove_file(&socket_path) {
-        if e.kind() != std::io::ErrorKind::NotFound {
-            return Err(SocketServerError::Delete(e));
-        }
-    }
-
     // Check the permissions, uid and gid of the parent dir.
-    let exp_uid = unistd::User::from_name(SOCKET_PARENT_GID_AND_UID)
+    let exp_uid = unistd::User::from_name(SOCKET_OWNER_NAME)
         .map_err(SocketServerError::IdLookup)?
         .ok_or(SocketServerError::RequiredUserOrGroup)?.uid.as_raw();
-    let exp_gid = unistd::Group::from_name(SOCKET_PARENT_GID_AND_UID)
+    let exp_gid = unistd::Group::from_name(SOCKET_OWNER_NAME)
         .map_err(SocketServerError::IdLookup)?
         .ok_or(SocketServerError::RequiredUserOrGroup)?.gid.as_raw();
     let md = fs::metadata(parent_path)
@@ -134,8 +125,15 @@ pub fn create_socket_server() -> Result<UnixListener, SocketServerError> {
     let uid = md.uid();
     let gid = md.gid();
     let permissions = md.permissions().mode();
-    if uid != exp_uid || gid != exp_gid || permissions != SOCKET_PARENT_PERMISSIONS{
+    if uid != exp_uid || gid != exp_gid || (permissions & 0o7777) != SOCKET_PARENT_PERMISSIONS{
         return Err(SocketServerError::ParentPermission(parent_path.to_path_buf()));
+    }
+
+    // Remove old socket if it wasn't properly removed last time.
+    if let Err(e) = std::fs::remove_file(&socket_path) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            return Err(SocketServerError::Delete(e));
+        }
     }
 
     // Create the socket.
