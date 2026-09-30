@@ -12,7 +12,8 @@ fn main() {
     match arg {
         None => core::launch_daemon(),
         Some(arg) => if arg == helper_subcommand {
-            connection_helper::launch_connection_helper();
+            // TODO: Handle result.
+            connection_helper::run_connection_helper();
         },
     }
 }

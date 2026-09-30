@@ -40,46 +40,46 @@ pub enum SocketServerError {
 impl Display for SocketServerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SocketServerError::Delete(error) => {
-                write!(f, "Error while deleting an old connection socket: {error}")
+            SocketServerError::Delete(_) => {
+                write!(f, "failed to delete an old connection socket")
             }
-            SocketServerError::Create(error) => {
-                write!(f, "Error while creating a connection socket: {error}")
+            SocketServerError::Create(_) => {
+                write!(f, "failed to create a connection socket")
             }
-            SocketServerError::IdLookup(error) => {
+            SocketServerError::IdLookup(_) => {
                 write!(
                     f,
-                    "Error while fetching the user or group id `{SOCKET_OWNER_NAME}` from the system: {error}"
+                    "failed to fetch the user or group id `{SOCKET_OWNER_NAME}` from the system"
                 )
             }
-            SocketServerError::MetadataLookup(path, error) => {
+            SocketServerError::MetadataLookup(path, _) => {
                 write!(
                     f,
-                    "Error while fetching the metadata from the parent directory `{path:?}`: {error}"
+                    "failed to fetch the metadata from the parent directory `{path:?}`"
                 )
             }
             SocketServerError::ParentPermission(path) => {
                 write!(
                     f,
-                    "The socket's parent directory `{path:?}` has invalid permissions or groups. Should be daekey:daekey, 750."
+                    "the socket's parent directory `{path:?}` has invalid permissions or groups, should be daekey:daekey, 750"
                 )
             }
             SocketServerError::NoParent(path) => {
                 write!(
                     f,
-                    "Cannot find the socket's parent directory `{path:?}`. Try restarting the service?"
+                    "cannot find the socket's parent directory `{path:?}`, try restarting the service"
                 )
             }
             SocketServerError::SocketPathIsDir(path) => {
                 write!(
                     f,
-                    "Socket's path `{path:?}` is a directory. It should be a path to a file."
+                    "socket's path `{path:?}` is a directory, it should be a path to a file"
                 )
             }
             SocketServerError::RequiredUserOrGroup => {
                 write!(
                     f,
-                    "The required user or group `{SOCKET_OWNER_NAME}` does not exist. It should have been created by the service."
+                    "the required user or group `{SOCKET_OWNER_NAME}` does not exist, it should have been created by the service"
                 )
             },
         }
