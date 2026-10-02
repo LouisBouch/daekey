@@ -202,6 +202,7 @@ dependencies = [
  "crossbeam",
  "crossbeam-channel",
  "evdev",
+ "nix 0.31.3",
  "postcard",
  "serde",
 ]
