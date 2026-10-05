@@ -1,4 +1,5 @@
 //! The hub of communication. Routes messages from uinpu/input to the necessary connected process.
+//! Also handles the creation of the endpoint connections in order to keep the routing list up to date.
 
 use crossbeam_channel::{Receiver, Sender};
 use libdae::input::event::KeyEvent;

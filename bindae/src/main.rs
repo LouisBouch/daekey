@@ -1,7 +1,7 @@
 use std::{error::Error, fmt::Display, process::ExitCode};
 
 pub mod compositor_interface;
-mod connection_helper;
+mod fd_transfer;
 mod core;
 mod device_interface;
 pub mod ipc;
@@ -53,7 +53,7 @@ fn run() -> Result<(), Box<dyn Error + 'static>> {
         }
         Some(arg) => {
             if arg == helper_subcommand {
-                connection_helper::run_connection_helper()
+                fd_transfer::run_connection_helper()
                     .map_err(|e| Box::new(e) as Box<dyn Error>)
             } else {
                 eprintln!(
