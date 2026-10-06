@@ -53,7 +53,7 @@ fn run() -> Result<(), Box<dyn Error + 'static>> {
         }
         Some(arg) => {
             if arg == helper_subcommand {
-                fd_transfer::run_connection_helper()
+                fd_transfer::run_fd_transferer()
                     .map_err(|e| Box::new(e) as Box<dyn Error>)
             } else {
                 eprintln!(
