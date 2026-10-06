@@ -1,9 +1,9 @@
 use std::{error::Error, fmt::Display, process::ExitCode};
 
 pub mod compositor_interface;
-mod fd_transfer;
 mod core;
 mod device_interface;
+mod fd_transfer;
 pub mod ipc;
 mod router;
 
@@ -47,14 +47,11 @@ fn run() -> Result<(), Box<dyn Error + 'static>> {
     let helper_subcommand = "helper";
     match arg {
         None => {
-            // TODO: Add result return to launch_daemon function.
-            core::launch_daemon();
-            Ok(())
+            return core::launch_daemon().map_err(|e| Box::new(e) as Box<dyn Error>);
         }
         Some(arg) => {
             if arg == helper_subcommand {
-                fd_transfer::run_fd_transferer()
-                    .map_err(|e| Box::new(e) as Box<dyn Error>)
+                fd_transfer::run_fd_transferer().map_err(|e| Box::new(e) as Box<dyn Error>)
             } else {
                 eprintln!(
                     "Invalid flag/subcommand. Either run daemon without arguments or with the `helper` subcommand to obtain a socket connection from stdout."

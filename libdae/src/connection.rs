@@ -60,7 +60,6 @@ pub enum SocketAcquisitionError {
     /// Iterating over the messages received from the daemon failed.
     IterateMessages(Errno),
     /// Daemon did not send an answer back in time.
-    // TODO: Implement timeout.
     Timedout,
     /// Daemon sent too many file descriptors, only 1 is expected.
     TooManyFds,
@@ -105,7 +104,7 @@ fn get_socket(fd_socket_core_end: i32) -> Result<UnixStream, SocketAcquisitionEr
     let mut payload = [0u8];
     let mut iov = [IoSliceMut::new(&mut payload)];
     let mut cmsg_buffer = nix::cmsg_space!([std::os::unix::io::RawFd; 1]);
-    // TODO: Throw error if waiting too long.
+    // TODO: Throw error if waiting too long and use `SocketAcquisitionError::Timedout` with it.
     let msg = recvmsg::<()>(
         fd_socket_core_end,
         &mut iov,
