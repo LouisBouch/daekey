@@ -7,3 +7,4 @@ pub mod constants;
 // User facing modules.
 pub mod input;
 pub mod client;
+pub mod handle;

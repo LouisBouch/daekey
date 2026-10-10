@@ -19,11 +19,11 @@ pub enum SendError {
 impl Display for SendError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SendError::Postcard(error) => {
-                write!(f, "Error while serializing message with postcard: {error}")
+            SendError::Postcard(_) => {
+                write!(f, "failed to serialize message")
             }
-            SendError::Io(error) => {
-                write!(f, "Error while sending message over socket: {error}")
+            SendError::Io(_) => {
+                write!(f, "failed to send message over socket")
             }
         }
     }

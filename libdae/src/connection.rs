@@ -2,7 +2,7 @@
 
 use std::{
     error::Error, fmt::Display, io::IoSliceMut, os::{
-        fd::{AsRawFd, FromRawFd, IntoRawFd},
+        fd::{FromRawFd, IntoRawFd},
         unix::net::UnixStream,
     }, process::{Command, Stdio}
 };
