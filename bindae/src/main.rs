@@ -66,7 +66,7 @@ fn print_err(err: Box<dyn Error + 'static>) {
     eprintln!("error: {err}");
     let mut source = err.source();
     while let Some(s) = source {
-        eprintln!(" caused by: {err}");
+        eprintln!("  caused by: {err}");
         source = s.source();
     }
 }

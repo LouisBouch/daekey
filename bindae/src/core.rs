@@ -98,7 +98,7 @@ pub fn launch_daemon() -> Result<(), RuntimeError> {
 
     // Start Input interface.
     let input_handle = Input::new(
-        fr_dev_interface_tx.clone(),
+        fr_dev_interface_tx,
         to_input_rx,
         to_uinput_tx.clone(),
     )

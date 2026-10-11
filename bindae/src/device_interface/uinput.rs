@@ -21,7 +21,23 @@ impl UInput {
         Self { router_tx, rx }
     }
     /// Launch the interface which will listen to message requests.
-    pub fn launch(self) -> JoinHandle<()> {
-        std::thread::spawn(move || {})
+    pub fn launch(mut self) -> JoinHandle<()> {
+        std::thread::spawn(move || {
+            loop {
+                match self.rx.recv() {
+                    Ok(m) => self.handle_message(m),
+                    Err(e) => {
+                        eprintln!(
+                            "error: failed to deserialize message for the uinput interface, skipping"
+                        );
+                        eprintln!(" cause: {e}");
+                    }
+                }
+            }
+        })
+    }
+    /// Handles a message request for the uinput interface.
+    pub fn handle_message(&mut self, msg: UInputMessage) {
+        match msg {}
     }
 }

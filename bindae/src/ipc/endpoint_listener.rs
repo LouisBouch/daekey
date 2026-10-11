@@ -36,7 +36,10 @@ impl EndpointListener {
                 match self.connection.recv() {
                     Ok(m) => self.handle_message(m),
                     Err(e) => {
-                        eprintln!("Failed to deserialize message, skipping: {e}");
+                        eprintln!(
+                            "error: failed to deserialize message from the connected process, skipping"
+                        );
+                        eprintln!(" cause: {e}");
                     }
                 }
             }

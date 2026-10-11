@@ -40,7 +40,23 @@ impl Input {
         self.used_keys = used_keys
     }
     /// Launch the interface which will listen to input devices and message requests.
-    pub fn launch(self) -> JoinHandle<()> {
-        std::thread::spawn(move || {})
+    pub fn launch(mut self) -> JoinHandle<()> {
+        std::thread::spawn(move || {
+            loop {
+                match self.rx.recv() {
+                    Ok(m) => self.handle_message(m),
+                    Err(e) => {
+                        eprintln!(
+                            "error: failed to deserialize message for the input interface, skipping"
+                        );
+                        eprintln!(" cause: {e}");
+                    }
+                }
+            }
+        })
+    }
+    /// Handles a message request for the input interface.
+    pub fn handle_message(&mut self, msg: InputMessage) {
+        match msg {}
     }
 }
