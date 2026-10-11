@@ -6,15 +6,23 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use crate::ipc::{
+    message::FromProcess,
+    socket_connection::{self, ConnectionTx},
+};
+
 /// Used as an API for the app's functionalities.
 pub struct Handle {
-    /// Socket connected to the daemon.
-    daemon_socket: UnixStream,
+    /// Outgoing connection to the daemon.
+    daemon_connection: ConnectionTx<FromProcess>,
 }
 impl Handle {
-    pub fn new(daemon_socket: UnixStream) -> Self {
-        Handle { daemon_socket }
+    pub(crate) fn new(daemon_socket: UnixStream) -> Self {
+        Handle {
+            daemon_connection: socket_connection::ConnectionTx::new(daemon_socket),
+        }
     }
+    //TODO: Implement api functions
 }
 /// Wraps a [`Handle`] and add dropping logic.
 pub(crate) struct HandleWrapper {
@@ -52,4 +60,3 @@ impl Drop for HandleWrapper {
             .push(handle);
     }
 }
-//TODO: Implement

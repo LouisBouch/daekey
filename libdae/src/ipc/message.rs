@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
+//TODO: add possible message types.
 /// A message from a connected process.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum FromProcess {

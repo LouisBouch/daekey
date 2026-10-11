@@ -19,7 +19,7 @@ use crate::{
 /// An action taken by the [`Client`].
 pub enum Action {
     /// Run a closure using a pool of threads.
-    Closure(Arc<dyn Fn(&Handle) + Send + Sync>),
+    Closure(Arc<dyn Fn(Handle) + Send + Sync>),
     /// Toggles the bindings on or off.
     ToggleBindings,
     /// Disconnects the process from the daemon.
@@ -104,9 +104,10 @@ impl Client {
         })
     }
     /// Start the client.
-    pub fn run(&mut self) {
-        // Add result as return value.
+    pub fn run(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        loop {}
     }
+    pub fn add_binding(&mut self, key_event: &KeyEvent, action: &Action) {}
     /// Execute an [`Action`] defined by a [`KeyEvent`] binding.
     fn execute_action(&mut self, action: &Action) {}
 }
