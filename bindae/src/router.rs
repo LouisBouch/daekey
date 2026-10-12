@@ -5,6 +5,8 @@ use crossbeam_channel::{Receiver, Sender};
 use libdae::input::event::KeyEvent;
 use libdae::ipc::{message, socket_connection::ConnectionTx};
 use std::collections::HashMap;
+use std::convert::Infallible;
+use std::error::Error;
 use std::os::unix::net::UnixStream;
 use std::thread::JoinHandle;
 
@@ -75,19 +77,21 @@ impl Router {
             loop {
                 crossbeam_channel::select_biased! {
                     recv(self.device_interface_rx) -> c_mes => {
-                        let m = c_mes.expect("channel should be open");
-                        self.handle_device_interface_message(m);
+                        match c_mes {
+                            Ok(m) => self.handle_device_interface_message(m),
+                            Err(e) => panic!("unexpected device interface shutdown, closing daemon: {e}"),
+                        }
                     },
                     recv(self.connection_rx) -> c_mes => {
                         match c_mes {
                             Ok(m) => self.handle_connection_message(m),
-                            Err(e) => eprintln!("unexpected interface shutdown, closing daemon: {e}"),
+                            Err(e) => panic!("unexpected endpoint connection shutdown, closing daemon: {e}"),
                         }
                     },
                     recv(self.connector_rx) -> c_mes => {
                         match c_mes {
                             Ok(m) => self.launch_new_connection(m),
-                            Err(e) => eprintln!("unexpected connector shutdown, closing daemon: {e}"),
+                            Err(e) => panic!("unexpected connector shutdown, closing daemon: {e}"),
                         }
                     },
                 }
@@ -100,7 +104,7 @@ impl Router {
     fn handle_connection_message(&mut self, msg: ConnectionMessage) {
         match msg {}
     }
-    fn launch_new_connection(&mut self, stream: UnixStream) {}
-    /// Shutdown the app.
-    fn exit(mut self) {}
+    fn launch_new_connection(&mut self, stream: UnixStream) {
+        todo!()
+    }
 }

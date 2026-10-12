@@ -47,7 +47,8 @@ fn run() -> Result<(), Box<dyn Error + 'static>> {
     let helper_subcommand = "helper";
     match arg {
         None => {
-            return core::launch_daemon().map_err(|e| Box::new(e) as Box<dyn Error>);
+            // Should never return. If it does, it means an error occured.
+            return Err(Box::new(core::launch_daemon()) as Box<dyn Error>);
         }
         Some(arg) => {
             if arg == helper_subcommand {
@@ -70,3 +71,6 @@ fn print_err(err: Box<dyn Error + 'static>) {
         source = s.source();
     }
 }
+
+// TODO: For all errors, use named struct instead of tuple?
+// TODO: Go around all eprintln and replace them with custom errors when necessary. also check formatting.

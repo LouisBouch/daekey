@@ -1,6 +1,11 @@
 //! Logic for starting the daemon.
 
-use std::{any::Any, error::Error, fmt::Display};
+use std::{
+    any::Any,
+    error::Error,
+    fmt::Display,
+    thread::{self, JoinHandle},
+};
 
 use crate::{
     device_interface::{input::Input, uinput::UInput},
@@ -9,7 +14,7 @@ use crate::{
 };
 
 /// Different types of threads launched by the daemon.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Thread {
     /// The router thread.
     Router,
@@ -41,21 +46,16 @@ impl Display for Thread {
 /// Error during the daemon's runtime.
 #[derive(Debug)]
 pub enum RuntimeError {
-    /// Error during the execution of a thread.
-    ///
-    /// # Arguments
-    ///
-    /// * `String` - The string extracted from the panic message.
-    /// * `Thread` - The Thread that panicked.
-    Thread(String, Thread),
+    /// Panic during the execution of a thread.
+    Thread(ThreadError),
     /// Error when initializing the socket server.
     SocketServer(SocketServerError),
 }
 impl Display for RuntimeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RuntimeError::Thread(panic, thread) => {
-                write!(f, "{thread} panicked: {panic}")
+            RuntimeError::Thread(_) => {
+                write!(f, "a thread quit when it should not have")
             }
             RuntimeError::SocketServer(_) => {
                 write!(
@@ -69,20 +69,24 @@ impl Display for RuntimeError {
 impl Error for RuntimeError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            RuntimeError::Thread(_, _) => None,
+            RuntimeError::Thread(thread_error) => Some(thread_error),
             RuntimeError::SocketServer(socket_server_error) => Some(socket_server_error),
         }
     }
 }
 
 /// Launches the daemon.
-pub fn launch_daemon() -> Result<(), RuntimeError> {
+///
+/// # Return
+///
+/// This function should run forever, so it will only return on an error.
+pub fn launch_daemon() -> RuntimeError {
     // Start socket server.
     let (connector_tx, fr_connector_rx) = crossbeam_channel::unbounded();
     let socket_server = match connector::create_socket_server() {
         Ok(s) => s,
         Err(e) => {
-            return Err(RuntimeError::SocketServer(e));
+            return RuntimeError::SocketServer(e);
         }
     };
     let socket_server_handle = connector::listen_socket_server(socket_server, connector_tx);
@@ -97,12 +101,7 @@ pub fn launch_daemon() -> Result<(), RuntimeError> {
     let uinput_handle = UInput::new(fr_dev_interface_tx.clone(), to_uinput_rx).launch();
 
     // Start Input interface.
-    let input_handle = Input::new(
-        fr_dev_interface_tx,
-        to_input_rx,
-        to_uinput_tx.clone(),
-    )
-    .launch();
+    let input_handle = Input::new(fr_dev_interface_tx, to_input_rx, to_uinput_tx.clone()).launch();
 
     // Start Router.
     let router_handle = Router::new(
@@ -114,21 +113,56 @@ pub fn launch_daemon() -> Result<(), RuntimeError> {
         fr_connection_tx,
     )
     .launch();
+    let handles = vec![
+        (socket_server_handle, Thread::SocketServer),
+        (uinput_handle, Thread::Uinput),
+        (input_handle, Thread::Input),
+        (router_handle, Thread::Router),
+    ];
+    RuntimeError::Thread(watch_handles(handles))
+}
 
-    // Join on created threads.
-    if let Err(e) = socket_server_handle.join() {
-        return Err(RuntimeError::Thread(format_panic(&e), Thread::SocketServer));
+/// Error while running a thread.
+#[derive(Debug)]
+pub enum ThreadError {
+    /// The thread panicked.
+    Panic {
+        thread: Thread,
+        formatted_panic: String,
+    },
+    /// The thread exited unexpectedly. (This should be impossible, the thread loop only exits on panics)
+    UnexpectedExit { thread: Thread },
+}
+impl Display for ThreadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ThreadError::Panic {
+                thread,
+                formatted_panic,
+            } => {
+                write!(f, "{thread} panicked: {formatted_panic}")
+            }
+            ThreadError::UnexpectedExit { thread } => {
+                write!(f, "{thread} exited unexpectedly")
+            }
+        }
     }
-    if let Err(e) = uinput_handle.join() {
-        return Err(RuntimeError::Thread(format_panic(&e), Thread::Uinput));
+}
+impl Error for ThreadError {}
+/// Checks the handles and return if any of them fails.
+fn watch_handles(handle_tuples: Vec<(JoinHandle<()>, Thread)>) -> ThreadError {
+    let (err_tx, err_rx) = crossbeam_channel::unbounded();
+    for (handle, thread) in handle_tuples {
+        let err_tx = err_tx.clone();
+        thread::spawn(move || match handle.join() {
+            Ok(_) => err_tx.send(ThreadError::UnexpectedExit { thread }),
+            Err(e) => err_tx.send(ThreadError::Panic {
+                thread: thread,
+                formatted_panic: format_panic(e.as_ref()),
+            }),
+        });
     }
-    if let Err(e) = input_handle.join() {
-        return Err(RuntimeError::Thread(format_panic(&e), Thread::Input));
-    }
-    if let Err(e) = router_handle.join() {
-        return Err(RuntimeError::Thread(format_panic(&e), Thread::Router));
-    }
-    Ok(())
+    err_rx.recv().expect("senders should not be closed")
 }
 /// Turns a panic payload from a join on a handle into a readable [`String`].
 fn format_panic(panic: &(dyn Any + Send + 'static)) -> String {

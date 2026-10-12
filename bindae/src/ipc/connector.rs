@@ -1,5 +1,6 @@
 //! Defines how the daemon accepts connections from other processes.
 
+use std::convert::Infallible;
 use std::error::Error;
 use std::fmt::Display;
 use std::fs;
@@ -81,7 +82,7 @@ impl Display for SocketServerError {
                     f,
                     "the required user or group `{SOCKET_OWNER_NAME}` does not exist, it should have been created by the service"
                 )
-            },
+            }
         }
     }
 }
@@ -116,17 +117,23 @@ pub fn create_socket_server() -> Result<UnixListener, SocketServerError> {
     // Check the permissions, uid and gid of the parent dir.
     let exp_uid = unistd::User::from_name(SOCKET_OWNER_NAME)
         .map_err(SocketServerError::IdLookup)?
-        .ok_or(SocketServerError::RequiredUserOrGroup)?.uid.as_raw();
+        .ok_or(SocketServerError::RequiredUserOrGroup)?
+        .uid
+        .as_raw();
     let exp_gid = unistd::Group::from_name(SOCKET_OWNER_NAME)
         .map_err(SocketServerError::IdLookup)?
-        .ok_or(SocketServerError::RequiredUserOrGroup)?.gid.as_raw();
+        .ok_or(SocketServerError::RequiredUserOrGroup)?
+        .gid
+        .as_raw();
     let md = fs::metadata(parent_path)
         .map_err(|e| SocketServerError::MetadataLookup(parent_path.to_path_buf(), e))?;
     let uid = md.uid();
     let gid = md.gid();
     let permissions = md.permissions().mode();
-    if uid != exp_uid || gid != exp_gid || (permissions & 0o7777) != SOCKET_PARENT_PERMISSIONS{
-        return Err(SocketServerError::ParentPermission(parent_path.to_path_buf()));
+    if uid != exp_uid || gid != exp_gid || (permissions & 0o7777) != SOCKET_PARENT_PERMISSIONS {
+        return Err(SocketServerError::ParentPermission(
+            parent_path.to_path_buf(),
+        ));
     }
 
     // Remove old socket if it wasn't properly removed last time.
@@ -145,39 +152,35 @@ pub fn create_socket_server() -> Result<UnixListener, SocketServerError> {
 /// # Parameters
 ///
 /// * `socket_server` - The server listening for new connections to the daemon.
-/// * `connection_tx` - The channel to send new connection sockets over.
+/// * `connector_tx` - The channel to send new connection sockets over.
 ///
 /// # Return
 ///
 /// The handle for the thread listening for new connections.
 pub fn listen_socket_server(
     socket_server: UnixListener,
-    connection_tx: Sender<UnixStream>,
+    connector_tx: Sender<UnixStream>,
 ) -> JoinHandle<()> {
     std::thread::spawn(move || {
-        let mut subsequent_stream_err = 0;
-        for stream in socket_server.incoming() {
-            match stream {
-                Ok(stream) => {
-                    subsequent_stream_err = 0;
-                    if let Err(e) = connection_tx.send(stream) {
-                        eprintln!(
-                            "Failed to send new connection, stopping connection listener: {e}"
-                        );
-                        break;
-                    };
-                }
-                Err(e) => {
-                    subsequent_stream_err += 1;
-                    eprintln!("Failed to get new connection: {e}");
-                    if subsequent_stream_err == 100 {
-                        eprintln!(
-                            "Too many subsequent stream errors, stopping connection listener"
-                        );
-                        break;
+        loop {
+            let mut subsequent_stream_err = 0;
+            for stream in socket_server.incoming() {
+                match stream {
+                    Ok(stream) => {
+                        subsequent_stream_err = 0;
+                        connector_tx
+                            .send(stream)
+                            .expect("other end of channel should be open");
                     }
-                    // Sleep to prevent fast error loop.
-                    thread::sleep(Duration::from_millis(100));
+                    Err(e) => {
+                        subsequent_stream_err += 1;
+                        eprintln!("Failed to get new connection: {e}");
+                        if subsequent_stream_err == 100 {
+                            panic!("too many subsequent stream errors");
+                        }
+                        // Sleep to prevent fast error loop.
+                        thread::sleep(Duration::from_millis(50));
+                    }
                 }
             }
         }
