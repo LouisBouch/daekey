@@ -1,10 +1,15 @@
 //! Handles the connection to the daemon.
 
 use std::{
-    error::Error, fmt::Display, io::IoSliceMut, os::{
-        fd::{FromRawFd, IntoRawFd},
+    error::Error,
+    fmt::Display,
+    io::IoSliceMut,
+    os::{
+        fd::{AsFd, AsRawFd, FromRawFd, IntoRawFd, OwnedFd},
         unix::net::UnixStream,
-    }, process::{Command, Stdio}
+    },
+    process::{Command, Stdio},
+    time::Duration,
 };
 
 use nix::{
@@ -15,13 +20,16 @@ use nix::{
 use crate::constants;
 
 const SOCKET_OWNER_NAME: &str = "daekey";
+const CONNECTION_TIMEOUT_MILLIS: u64 = 1000;
 /// Error when connecting to the daemon and obtaining a connection socket.
 #[derive(Debug)]
 pub enum ConnectionError {
     /// Failed to create initial socket pair.
     SocketPairCreation(std::io::Error),
-    ///Failed to launch the daemon subcommand helper.
+    /// Failed to launch the daemon subcommand helper.
     SubcommandLaunch(std::io::Error),
+    /// Failed to wait for the subcommand to finish.
+    SubcommandWait(std::io::Error),
     /// Failed to obtain a socket from the daemon.
     SocketAcquisition(SocketAcquisitionError),
 }
@@ -37,6 +45,9 @@ impl Display for ConnectionError {
             ConnectionError::SubcommandLaunch(_) => {
                 write!(f, "failed to launch the daemon's subcommand")
             }
+            ConnectionError::SubcommandWait(_) => {
+                write!(f, "failed to wait for the daemon's subcommand")
+            }
             ConnectionError::SocketAcquisition(_) => {
                 write!(f, "failed to acquire a socket for the daemon")
             }
@@ -48,7 +59,10 @@ impl Error for ConnectionError {
         match self {
             ConnectionError::SocketPairCreation(error) => Some(error),
             ConnectionError::SubcommandLaunch(error) => Some(error),
-            ConnectionError::SocketAcquisition(socket_acquisition_error) => Some(socket_acquisition_error),
+            ConnectionError::SubcommandWait(error) => Some(error),
+            ConnectionError::SocketAcquisition(socket_acquisition_error) => {
+                Some(socket_acquisition_error)
+            }
         }
     }
 }
@@ -66,24 +80,36 @@ pub enum SocketAcquisitionError {
     /// Message received from daemon contained no socket.
     MissingSocket,
 }
-impl Display for SocketAcquisitionError{
+impl Display for SocketAcquisitionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SocketAcquisitionError::ReceiveMessage(_) => {
-                write!(f, "failed to receive a message from the daemon's subcommand")
-            },
+                write!(
+                    f,
+                    "failed to receive a message from the daemon's subcommand"
+                )
+            }
             SocketAcquisitionError::IterateMessages(_) => {
-                write!(f, "failed to iterate over the messages received from the daemon's subcommand")
-            },
+                write!(
+                    f,
+                    "failed to iterate over the messages received from the daemon's subcommand"
+                )
+            }
             SocketAcquisitionError::Timedout => {
-                write!(f, "message reception from the daemon's subcommand timed out")
-            },
+                write!(
+                    f,
+                    "message reception from the daemon's subcommand timed out"
+                )
+            }
             SocketAcquisitionError::TooManyFds => {
                 write!(f, "daemon's subcommand returned to many file descriptors")
-            },
+            }
             SocketAcquisitionError::MissingSocket => {
-                write!(f, "daemon's subcommand failed to return a file descriptor")
-            },
+                write!(
+                    f,
+                    "daemon's subcommand failed to return a file descriptor, it might have crashed"
+                )
+            }
         }
     }
 }
@@ -99,35 +125,45 @@ impl Error for SocketAcquisitionError {
     }
 }
 /// Obtain a connection socket from the daemon subcommand helper.
-fn get_socket(fd_socket_core_end: i32) -> Result<UnixStream, SocketAcquisitionError> {
+fn wait_for_socket(socket_core_end: UnixStream) -> Result<UnixStream, SocketAcquisitionError> {
     // Receive socket from spawned process.
     let mut payload = [0u8];
     let mut iov = [IoSliceMut::new(&mut payload)];
     let mut cmsg_buffer = nix::cmsg_space!([std::os::unix::io::RawFd; 1]);
-    // TODO: Throw error if waiting too long and use `SocketAcquisitionError::Timedout` with it.
+    socket_core_end
+        .set_read_timeout(Some(Duration::from_millis(CONNECTION_TIMEOUT_MILLIS)))
+        .expect("should be able to set timeout");
     let msg = recvmsg::<()>(
-        fd_socket_core_end,
+        socket_core_end.as_raw_fd(),
         &mut iov,
         Some(&mut cmsg_buffer),
         MsgFlags::empty(),
     )
-    .map_err(SocketAcquisitionError::ReceiveMessage)?;
-
+    .map_err(|e| match e {
+        Errno::EAGAIN => SocketAcquisitionError::Timedout,
+        _ => SocketAcquisitionError::ReceiveMessage(e),
+    })?;
     let mut socket = None;
     let cmsgs = msg
         .cmsgs()
         .map_err(SocketAcquisitionError::IterateMessages)?;
+    let mut too_many_fds = false;
     for cmsg in cmsgs {
         if let ControlMessageOwned::ScmRights(fds) = cmsg {
             for fd in fds {
                 if socket.is_some() {
-                    return Err(SocketAcquisitionError::TooManyFds);
+                    // Don't exit now to prevent remaining fds from leaking.
+                    // Wrap and drop all of them and exit with error later.
+                    too_many_fds = true;
                 }
                 unsafe {
                     socket = Some(UnixStream::from_raw_fd(fd));
                 }
             }
         }
+    }
+    if too_many_fds {
+        return Err(SocketAcquisitionError::TooManyFds);
     }
     socket.ok_or(SocketAcquisitionError::MissingSocket)
 }
@@ -136,7 +172,6 @@ fn get_socket(fd_socket_core_end: i32) -> Result<UnixStream, SocketAcquisitionEr
 pub fn socket_from_daemon() -> Result<UnixStream, ConnectionError> {
     let (socket_core_end, socket_daemon_end) =
         std::os::unix::net::UnixStream::pair().map_err(ConnectionError::SocketPairCreation)?;
-    let fd_socket_daemon_end = socket_daemon_end.into_raw_fd();
     Command::new("sudo")
         .args([
             "setpriv",
@@ -147,10 +182,12 @@ pub fn socket_from_daemon() -> Result<UnixStream, ConnectionError> {
             "--rgid",
             SOCKET_OWNER_NAME,
             constants::DAEMON_BIN_PATH,
+            "helper"
         ])
-        .stdout(unsafe { Stdio::from_raw_fd(fd_socket_daemon_end) })
+        .stdout(Stdio::from(OwnedFd::from(socket_daemon_end)))
         .spawn()
-        .map_err(ConnectionError::SubcommandLaunch)?;
-    let fd_socket_core_end = socket_core_end.into_raw_fd();
-    get_socket(fd_socket_core_end).map_err(ConnectionError::SocketAcquisition)
+        .map_err(ConnectionError::SubcommandLaunch)?
+        .wait()
+        .map_err(ConnectionError::SubcommandWait)?;
+    wait_for_socket(socket_core_end).map_err(ConnectionError::SocketAcquisition)
 }

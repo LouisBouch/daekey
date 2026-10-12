@@ -119,6 +119,7 @@ pub fn launch_daemon() -> RuntimeError {
         (input_handle, Thread::Input),
         (router_handle, Thread::Router),
     ];
+    // Should never return.
     RuntimeError::Thread(watch_handles(handles))
 }
 
