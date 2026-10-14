@@ -14,6 +14,10 @@ use rayon::ThreadPoolBuildError;
 use crate::{
     connection::{ConnectionError, socket_from_daemon},
     handle::Handle,
+    ipc::{
+        message::FromDaemon,
+        socket_connection::{self, ConnectionRx},
+    },
 };
 
 /// An action taken by the [`Client`].
@@ -68,6 +72,8 @@ pub struct Client {
     thread_pool: rayon::ThreadPool,
     /// List of handles to be handed to closures.
     handles: Arc<Mutex<Vec<Handle>>>,
+    /// The connection that will receive messages from the daemon.
+    daemon_rx: ConnectionRx<FromDaemon>,
     /// Whether the bindings' actions will be executed (The bindings that allow for unpausing are not paused)
     bindings_active: bool,
     /// The [`Action`] associated for each binding's [`KeyEvent`].
@@ -86,19 +92,22 @@ impl Client {
             .build()
             .map_err(InstantiationError::ThreadPool)?;
         let handles = Arc::new(Mutex::new(Vec::new()));
+        let daemon_rx = socket_connection::ConnectionRx::new(
+            daemon_socket
+                .try_clone()
+                .map_err(InstantiationError::SocketCloning)?,
+        );
+        let daemon_tx = socket_connection::ConnectionTx::new(daemon_socket);
         for _ in 0..max_threads {
             handles
                 .lock()
                 .expect("previous lock should not have panicked")
-                .push(Handle::new(
-                    daemon_socket
-                        .try_clone()
-                        .map_err(InstantiationError::SocketCloning)?,
-                ));
+                .push(Handle::new(daemon_tx.clone()));
         }
         Ok(Self {
             thread_pool,
             handles,
+            daemon_rx,
             bindings_active: true,
             bindings: HashMap::new(),
         })

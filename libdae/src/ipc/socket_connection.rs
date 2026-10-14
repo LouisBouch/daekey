@@ -1,6 +1,13 @@
 //! Handles connection between daemon and process using a socket.
 
-use std::{error::Error, fmt::Display, io::Write, marker::PhantomData, os::unix::net::UnixStream};
+use std::{
+    error::Error,
+    fmt::Display,
+    io::Write,
+    marker::PhantomData,
+    os::unix::net::UnixStream,
+    sync::{Arc, Mutex},
+};
 
 use serde::{Serialize, de::DeserializeOwned};
 
@@ -36,10 +43,12 @@ impl Error for SendError {
         }
     }
 }
+
 /// A connection that sends messages to a connected process.
+#[derive(Clone)]
 pub struct ConnectionTx<S: Serialize> {
     /// Socket connecting a process to the daemon.
-    socket: UnixStream,
+    socket: Arc<Mutex<UnixStream>>,
     /// Generic type has to be held somewhere.
     _t: PhantomData<S>,
     /// Used to serialzie data into.
@@ -52,11 +61,7 @@ impl<S: Serialize> ConnectionTx<S> {
     ///
     /// * `socket` - The socket used for inter process communication.
     pub fn new(socket: UnixStream) -> Self {
-        Self {
-            socket,
-            _t: PhantomData,
-            _buffer: Some(Vec::with_capacity(DEFAULT_TX_BUFFER_SIZE)),
-        }
+        Self::with_starting_buffer_capacity(socket, DEFAULT_TX_BUFFER_SIZE)
     }
     /// Create a new connection sender. This can be used to send data over a socket.
     ///
@@ -70,7 +75,7 @@ impl<S: Serialize> ConnectionTx<S> {
         starting_buffer_capacity: usize,
     ) -> Self {
         Self {
-            socket: socket,
+            socket: Arc::new(Mutex::new(socket)),
             _t: PhantomData,
             _buffer: Some(Vec::with_capacity(starting_buffer_capacity)),
         }
@@ -87,6 +92,8 @@ impl<S: Serialize> ConnectionTx<S> {
             }
         }
         self.socket
+            .lock()
+            .expect("mutex should lock")
             .write_all(&self._buffer.as_ref().expect(e))
             .map_err(SendError::Io)?;
         Ok(())
@@ -110,11 +117,11 @@ impl<R: DeserializeOwned> ConnectionRx<R> {
     ///
     /// * `socket` - The socket used for inter process communication.
     pub fn new(socket: UnixStream) -> Self {
-        Self {
-            socket: std::io::BufReader::with_capacity(DEFAULT_RX_READ_BUFFER_SIZE, socket),
-            scratch_buffer: vec![0; DEFAULT_RX_SCRATCH_BUFFER_SIZE],
-            _t: PhantomData,
-        }
+        Self::with_buffer_size(
+            socket,
+            DEFAULT_RX_SCRATCH_BUFFER_SIZE,
+            DEFAULT_RX_READ_BUFFER_SIZE,
+        )
     }
     /// Create a new connection receiver given a buffer size. This can be used to receive data from a socket.
     ///
@@ -139,5 +146,3 @@ impl<R: DeserializeOwned> ConnectionRx<R> {
         Ok(postcard::from_io((&mut self.socket, &mut self.scratch_buffer))?.0)
     }
 }
-
-// TODO: A connection that can both send and receive messages?

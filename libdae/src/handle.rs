@@ -17,9 +17,9 @@ pub struct Handle {
     daemon_connection: ConnectionTx<FromProcess>,
 }
 impl Handle {
-    pub(crate) fn new(daemon_socket: UnixStream) -> Self {
+    pub(crate) fn new(daemon_connection: ConnectionTx<FromProcess>) -> Self {
         Handle {
-            daemon_connection: socket_connection::ConnectionTx::new(daemon_socket),
+            daemon_connection: daemon_connection,
         }
     }
     //TODO: Implement api functions
