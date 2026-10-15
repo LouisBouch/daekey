@@ -114,7 +114,14 @@ impl Client {
     }
     /// Start the client.
     pub fn run(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        loop {}
+        loop {
+            match self.daemon_rx.recv() {
+                Ok(m) => match m {
+                    // TODO: NEXT add message types.
+                },
+                Err(e) => eprintln!("failed to receive message from daemon: {e}"),
+            }
+        }
     }
     pub fn add_binding(&mut self, key_event: &KeyEvent, action: &Action) {}
     /// Execute an [`Action`] defined by a [`KeyEvent`] binding.

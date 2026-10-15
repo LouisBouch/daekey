@@ -1,18 +1,19 @@
 //! The hub of communication. Routes messages from uinpu/input to the necessary connected process.
-//! Also handles the creation of the endpoint connections in order to keep the routing list up to date.
+//! Also handles the creation of the client connections in order to keep the routing list up to date.
 
 use crossbeam_channel::{Receiver, Sender};
 use libdae::input::event::KeyEvent;
-use libdae::ipc::{message, socket_connection::ConnectionTx};
+use libdae::ipc::{message, socket_connection::ConnectionRx, socket_connection::ConnectionTx};
 use std::collections::HashMap;
-use std::convert::Infallible;
 use std::error::Error;
+use std::fmt::Display;
 use std::os::unix::net::UnixStream;
 use std::thread::JoinHandle;
 
 use crate::device_interface::input::InputMessage;
 use crate::device_interface::uinput::UInputMessage;
-use crate::ipc::endpoint_listener::SessionId;
+use crate::ipc::client_listener::{ClientId, ClientListener};
+use crate::print_err;
 
 /// Messages received form [`UInput`] or [`Input`].
 pub enum DeviceInterfaceMessage {}
@@ -28,19 +29,41 @@ struct ConnectionContext {
     /// Channel connected to the [`Router`].
     connection_tx: Sender<ConnectionMessage>,
 }
+/// Errors when trying to launch a new connection from a socket connection to the process.
+#[derive(Debug)]
+enum ConnectionLaunchError {
+    /// Failed to clone a socket.
+    SocketClone(std::io::Error),
+}
+impl Display for ConnectionLaunchError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConnectionLaunchError::SocketClone(_) => {
+                write!(f, "failed to clone socket for process connection")
+            }
+        }
+    }
+}
+impl Error for ConnectionLaunchError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            ConnectionLaunchError::SocketClone(error) => Some(error),
+        }
+    }
+}
 
 /// Holds necesary maps to properly pass messages along.
 pub struct Router {
     /// The next id to attribute to a connection/session.
-    next_id: u64,
+    next_id: ClientId,
     /// Map listing the [`ConnectionTx`] for each active session.
-    endpoint_map: HashMap<SessionId, ConnectionTx<message::FromDaemon>>,
+    client_map: HashMap<ClientId, ConnectionTx<message::FromDaemon>>,
     /// List of connection sessions for each [`KeyEvent`].
-    subscription_map: HashMap<KeyEvent, Vec<SessionId>>,
+    subscription_map: HashMap<KeyEvent, Vec<ClientId>>,
 
     /// Message receiver from a device interface.
     device_interface_rx: Receiver<DeviceInterfaceMessage>,
-    /// Message receiver from an endpoint connection.
+    /// Message receiver from an client connection.
     connection_rx: Receiver<ConnectionMessage>,
     /// Receives receiver new connections from the [`Connector`].
     connector_rx: Receiver<UnixStream>,
@@ -59,7 +82,7 @@ impl Router {
     ) -> Self {
         Self {
             next_id: 0,
-            endpoint_map: HashMap::new(),
+            client_map: HashMap::new(),
             subscription_map: HashMap::new(),
             device_interface_rx,
             connection_rx,
@@ -85,12 +108,14 @@ impl Router {
                     recv(self.connection_rx) -> c_mes => {
                         match c_mes {
                             Ok(m) => self.handle_connection_message(m),
-                            Err(e) => panic!("unexpected endpoint connection shutdown, closing daemon: {e}"),
+                            Err(e) => panic!("unexpected client connection shutdown, closing daemon: {e}"),
                         }
                     },
                     recv(self.connector_rx) -> c_mes => {
                         match c_mes {
-                            Ok(m) => self.launch_new_connection(m),
+                            Ok(m) => if let Err(e) = self.launch_new_connection(m) {
+                                print_err(Box::new(e));
+                            },
                             Err(e) => panic!("unexpected connector shutdown, closing daemon: {e}"),
                         }
                     },
@@ -104,7 +129,31 @@ impl Router {
     fn handle_connection_message(&mut self, msg: ConnectionMessage) {
         match msg {}
     }
-    fn launch_new_connection(&mut self, stream: UnixStream) {
-        todo!()
+    /// Createa a new client connection given a socket to a process.
+    fn launch_new_connection(
+        &mut self,
+        stream: UnixStream,
+    ) -> Result<JoinHandle<()>, ConnectionLaunchError> {
+        // TODO: TEST THIS.
+        let client_rx = ConnectionRx::<message::FromProcess>::new(
+            stream
+                .try_clone()
+                .map_err(ConnectionLaunchError::SocketClone)?,
+        );
+        let ctx = &self.connection_ctx;
+        let handle = ClientListener::new(
+            self.next_id,
+            client_rx,
+            ctx.connection_tx.clone(),
+            ctx.input_tx.clone(),
+            ctx.uinput_tx.clone(),
+        )
+        .launch();
+
+        let client_tx = ConnectionTx::<message::FromDaemon>::new(stream);
+        self.client_map.insert(self.next_id, client_tx);
+
+        self.next_id += 1;
+        Ok(handle)
     }
 }

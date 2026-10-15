@@ -9,17 +9,17 @@ use crate::{
     router::ConnectionMessage,
 };
 
-use libdae::ipc;
+use libdae::ipc::{message, socket_connection::ConnectionRx};
 
 /// The id of a connection between the daemon and a process.
-pub type SessionId = u64;
+pub type ClientId = u64;
 
 /// Info and logic about the receiving side of a connection with a process.
-pub struct EndpointListener {
+pub struct ClientListener {
     /// The id of the connection.
-    id: SessionId,
+    id: ClientId,
     /// The connection with the socket.
-    connection: ipc::socket_connection::ConnectionRx<ipc::message::FromProcess>,
+    connection: ConnectionRx<message::FromProcess>,
     /// Channel to transmit to the router.
     router_tx: Sender<ConnectionMessage>,
     /// Channel to transmit to input.
@@ -28,10 +28,27 @@ pub struct EndpointListener {
     uinput_tx: Sender<UInputMessage>,
 }
 
-impl EndpointListener {
+impl ClientListener {
+    pub fn new(
+        id: ClientId,
+        connection: ConnectionRx<message::FromProcess>,
+        router_tx: Sender<ConnectionMessage>,
+        input_tx: Sender<InputMessage>,
+        uinput_tx: Sender<UInputMessage>,
+    ) -> Self {
+        Self {
+            id,
+            connection,
+            router_tx,
+            input_tx,
+            uinput_tx,
+        }
+    }
     /// Launch the connection, which will start listening to the socket.
     pub fn launch(mut self) -> JoinHandle<()> {
         std::thread::spawn(move || {
+            // TODO: Add drop guard to tell router if thread fails. Otherwise, send cleant exit
+            // message on one of the handle_message branches.
             loop {
                 match self.connection.recv() {
                     Ok(m) => self.handle_message(m),
@@ -46,7 +63,7 @@ impl EndpointListener {
         })
     }
     /// Handles a message received from the process.
-    pub fn handle_message(&mut self, msg: ipc::message::FromProcess) {
+    pub fn handle_message(&mut self, msg: message::FromProcess) {
         match msg {}
     }
 }
