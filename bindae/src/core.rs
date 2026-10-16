@@ -93,7 +93,6 @@ pub fn launch_daemon() -> RuntimeError {
 
     // Define channels.
     let (fr_dev_interface_tx, fr_dev_interface_rx) = crossbeam_channel::unbounded();
-    let (fr_connection_tx, fr_connection_rx) = crossbeam_channel::unbounded();
     let (to_uinput_tx, to_uinput_rx) = crossbeam_channel::unbounded();
     let (to_input_tx, to_input_rx) = crossbeam_channel::unbounded();
 
@@ -106,11 +105,9 @@ pub fn launch_daemon() -> RuntimeError {
     // Start Router.
     let router_handle = Router::new(
         fr_dev_interface_rx,
-        fr_connection_rx,
         fr_connector_rx,
         to_uinput_tx,
         to_input_tx,
-        fr_connection_tx,
     )
     .launch();
     let handles = vec![

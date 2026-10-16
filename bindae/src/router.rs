@@ -1,7 +1,7 @@
 //! The hub of communication. Routes messages from uinpu/input to the necessary connected process.
 //! Also handles the creation of the client connections in order to keep the routing list up to date.
 
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::{Receiver, SendError, Sender};
 use libdae::input::event::KeyEvent;
 use libdae::ipc::{message, socket_connection::ConnectionRx, socket_connection::ConnectionTx};
 use std::collections::HashMap;
@@ -16,81 +16,117 @@ use crate::ipc::client_listener::{ClientId, ClientListener};
 use crate::print_err;
 
 /// Messages received form [`UInput`] or [`Input`].
+#[derive(Clone, Debug)]
 pub enum DeviceInterfaceMessage {}
-/// Message Received from a [`Connection`].
-pub enum ConnectionMessage {}
 
-/// Holds fields necessary for a [`Connection`].
-struct ConnectionContext {
-    /// Channel connected to [`crate::device_interface::uinput::UInput`].
-    uinput_tx: Sender<UInputMessage>,
-    /// Channel connected to [`crate::device_interface::uinput::Input`].
-    input_tx: Sender<InputMessage>,
-    /// Channel connected to the [`Router`].
-    connection_tx: Sender<ConnectionMessage>,
+/// The reason the [`ClientListener`] terminated its loop.
+#[derive(Clone, Debug, Copy)]
+pub enum ClientExitCode {
+    /// The termination occured in an unexpected manner.
+    Unexpected,
+    /// Some authorized section of the code requested for the termination.
+    Expected,
 }
-/// Errors when trying to launch a new connection from a socket connection to the process.
+/// Message Received from a [`ClientListener`].
+#[derive(Clone, Debug)]
+pub enum ClientMessage {
+    ClientClosed(ClientExitCode),
+}
+/// Wraps a message from a [`ClientListener`] with its id.
+#[derive(Clone, Debug)]
+pub struct ClientMessageWrapper {
+    /// Id of the [`ClientListener`]
+    client_id: ClientId,
+    /// Message to send.
+    message: ClientMessage,
+}
+/// Wrapper around a client to router sender.
+#[derive(Clone, Debug)]
+pub struct ClientToRouterTx {
+    /// Id of the [`ClientListener`]
+    client_id: ClientId,
+    /// Sender from [`ClientListener`] to [`Router`].
+    sender: Sender<ClientMessageWrapper>,
+}
+impl ClientToRouterTx {
+    pub fn send(&self, message: ClientMessage) -> Result<(), SendError<ClientMessageWrapper>> {
+        self.sender.send(ClientMessageWrapper {
+            client_id: self.client_id,
+            message,
+        })
+    }
+}
+
+/// Holds fields necessary for a [`ClientListener`].
+struct ClientContext {
+    /// Channel connected to [`crate::device_interface::uinput::UInput`].
+    to_uinput_tx: Sender<UInputMessage>,
+    /// Channel connected to [`crate::device_interface::uinput::Input`].
+    to_input_tx: Sender<InputMessage>,
+    /// Channel connected to the [`Router`].
+    to_router_tx: Sender<ClientMessageWrapper>,
+}
+/// Errors when trying to launch a new client from a socket connection to the process.
 #[derive(Debug)]
-enum ConnectionLaunchError {
+enum ClientLaunchError {
     /// Failed to clone a socket.
     SocketClone(std::io::Error),
 }
-impl Display for ConnectionLaunchError {
+impl Display for ClientLaunchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ConnectionLaunchError::SocketClone(_) => {
-                write!(f, "failed to clone socket for process connection")
+            ClientLaunchError::SocketClone(_) => {
+                write!(f, "failed to clone socket for client connection")
             }
         }
     }
 }
-impl Error for ConnectionLaunchError {
+impl Error for ClientLaunchError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            ConnectionLaunchError::SocketClone(error) => Some(error),
+            ClientLaunchError::SocketClone(error) => Some(error),
         }
     }
 }
 
 /// Holds necesary maps to properly pass messages along.
 pub struct Router {
-    /// The next id to attribute to a connection/session.
-    next_id: ClientId,
+    /// The next id to attribute to a client.
+    next_client_id: ClientId,
     /// Map listing the [`ConnectionTx`] for each active session.
     client_map: HashMap<ClientId, ConnectionTx<message::FromDaemon>>,
     /// List of connection sessions for each [`KeyEvent`].
-    subscription_map: HashMap<KeyEvent, Vec<ClientId>>,
+    client_subscription_map: HashMap<KeyEvent, Vec<ClientId>>,
 
     /// Message receiver from a device interface.
     device_interface_rx: Receiver<DeviceInterfaceMessage>,
-    /// Message receiver from an client connection.
-    connection_rx: Receiver<ConnectionMessage>,
+    /// Message receiver from a client connection.
+    fr_client_rx: Receiver<ClientMessageWrapper>,
     /// Receives receiver new connections from the [`Connector`].
-    connector_rx: Receiver<UnixStream>,
+    fr_connector_rx: Receiver<UnixStream>,
     /// Will be given to each new [`Connection`].
-    connection_ctx: ConnectionContext,
+    client_ctx: ClientContext,
 }
 
 impl Router {
     pub fn new(
-        device_interface_rx: Receiver<DeviceInterfaceMessage>,
-        connection_rx: Receiver<ConnectionMessage>,
-        connector_rx: Receiver<UnixStream>,
-        uinput_tx: Sender<UInputMessage>,
-        input_tx: Sender<InputMessage>,
-        connection_tx: Sender<ConnectionMessage>,
+        fr_device_interface_rx: Receiver<DeviceInterfaceMessage>,
+        fr_connector_rx: Receiver<UnixStream>,
+        to_uinput_tx: Sender<UInputMessage>,
+        to_input_tx: Sender<InputMessage>,
     ) -> Self {
+        let (fr_client_tx, fr_client_rx) = crossbeam_channel::unbounded();
         Self {
-            next_id: 0,
+            next_client_id: 0,
             client_map: HashMap::new(),
-            subscription_map: HashMap::new(),
-            device_interface_rx,
-            connection_rx,
-            connector_rx,
-            connection_ctx: ConnectionContext {
-                uinput_tx,
-                input_tx,
-                connection_tx,
+            client_subscription_map: HashMap::new(),
+            device_interface_rx: fr_device_interface_rx,
+            fr_client_rx,
+            fr_connector_rx,
+            client_ctx: ClientContext {
+                to_uinput_tx,
+                to_input_tx,
+                to_router_tx: fr_client_tx,
             },
         }
     }
@@ -105,15 +141,15 @@ impl Router {
                             Err(e) => panic!("unexpected device interface shutdown, closing daemon: {e}"),
                         }
                     },
-                    recv(self.connection_rx) -> c_mes => {
+                    recv(self.fr_client_rx) -> c_mes => {
                         match c_mes {
-                            Ok(m) => self.handle_connection_message(m),
-                            Err(e) => panic!("unexpected client connection shutdown, closing daemon: {e}"),
+                            Ok(m) => self.handle_client_message(m),
+                            Err(e) => panic!("unexpected client listener shutdown, closing daemon: {e}"),
                         }
                     },
-                    recv(self.connector_rx) -> c_mes => {
+                    recv(self.fr_connector_rx) -> c_mes => {
                         match c_mes {
-                            Ok(m) => if let Err(e) = self.launch_new_connection(m) {
+                            Ok(m) => if let Err(e) = self.launch_new_client(m) {
                                 print_err(Box::new(e));
                             },
                             Err(e) => panic!("unexpected connector shutdown, closing daemon: {e}"),
@@ -126,34 +162,37 @@ impl Router {
     fn handle_device_interface_message(&self, msg: DeviceInterfaceMessage) {
         match msg {}
     }
-    fn handle_connection_message(&mut self, msg: ConnectionMessage) {
-        match msg {}
+    fn handle_client_message(&mut self, msg: ClientMessageWrapper) {
+        let ClientMessageWrapper { client_id, message } = msg;
+        match message {
+            ClientMessage::ClientClosed(client_exit_code) => todo!(),
+        }
     }
     /// Createa a new client connection given a socket to a process.
-    fn launch_new_connection(
+    fn launch_new_client(
         &mut self,
         stream: UnixStream,
-    ) -> Result<JoinHandle<()>, ConnectionLaunchError> {
+    ) -> Result<JoinHandle<()>, ClientLaunchError> {
         // TODO: TEST THIS.
         let client_rx = ConnectionRx::<message::FromProcess>::new(
-            stream
-                .try_clone()
-                .map_err(ConnectionLaunchError::SocketClone)?,
+            stream.try_clone().map_err(ClientLaunchError::SocketClone)?,
         );
-        let ctx = &self.connection_ctx;
+        let ctx = &self.client_ctx;
         let handle = ClientListener::new(
-            self.next_id,
             client_rx,
-            ctx.connection_tx.clone(),
-            ctx.input_tx.clone(),
-            ctx.uinput_tx.clone(),
+            ClientToRouterTx {
+                client_id: self.next_client_id,
+                sender: ctx.to_router_tx.clone(),
+            },
+            ctx.to_input_tx.clone(),
+            ctx.to_uinput_tx.clone(),
         )
         .launch();
 
         let client_tx = ConnectionTx::<message::FromDaemon>::new(stream);
-        self.client_map.insert(self.next_id, client_tx);
+        self.client_map.insert(self.next_client_id, client_tx);
 
-        self.next_id += 1;
+        self.next_client_id += 1;
         Ok(handle)
     }
 }
