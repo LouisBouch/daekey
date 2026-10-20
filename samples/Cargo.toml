@@ -1,7 +1,8 @@
 [package]
-name = "scrdae"
+name = "samples"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-libdae = { path = "../libdae" }
+library = { path = "../library" }
+

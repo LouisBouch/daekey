@@ -1,4 +1,4 @@
-use libdae::client::Client;
+use library::client::Client;
 
 fn main() {
     let mut client = Client::instantiate(5).unwrap();

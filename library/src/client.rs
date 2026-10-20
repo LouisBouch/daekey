@@ -65,6 +65,28 @@ impl Error for InstantiationError {
         }
     }
 }
+#[derive(Debug)]
+/// Possible errors when running the [`Client`].
+pub enum RunError {
+    /// Socket to the daemon was disconnected.
+    SocketConnection,
+}
+impl Display for RunError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RunError::SocketConnection => {
+                write!(f, "the daemon's socket closed unexpectedly")
+            }
+        }
+    }
+}
+impl Error for RunError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            RunError::SocketConnection => None,
+        }
+    }
+}
 
 /// An instance of a connection to the daemon.
 pub struct Client {
@@ -113,13 +135,20 @@ impl Client {
         })
     }
     /// Start the client.
-    pub fn run(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub fn run(&mut self) -> Result<(), RunError> {
         loop {
             match self.daemon_rx.recv() {
                 Ok(m) => match m {
                     // TODO: NEXT add message types.
                 },
-                Err(e) => eprintln!("failed to receive message from daemon: {e}"),
+                Err(e) => {
+                    // For a regular socket, DeserializeUnexpectedEnd represents disconnect.
+                    if e == postcard::Error::DeserializeUnexpectedEnd {
+                        return Err(RunError::SocketConnection);
+                    }
+                    eprintln!("error: failed to receive message from the daemon, skipping");
+                    eprintln!("  cause: {e}");
+                }
             }
         }
     }

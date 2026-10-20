@@ -1,5 +1,7 @@
 use std::{error::Error, fmt::Display, process::ExitCode};
 
+use evdev::{BusType, EventType};
+
 pub mod compositor_interface;
 mod core;
 mod device_interface;
@@ -33,7 +35,7 @@ impl Error for RunError {
     }
 }
 fn main() -> ExitCode {
-    // Obtained by running cargo run --bin bindae -- value
+    // Obtained by running cargo run --bin daemon -- value
     let res = run();
     if let Err(e) = res {
         print_err(e);

@@ -41,9 +41,9 @@ impl Error for FdTransferError {
 }
 
 /// Connects to the daemon socket and return to the calling process the newly created socket with
-/// SCM_RIGHTS.
+/// SCM_RIGHTS through stdout.
 pub fn run_fd_transferer() -> Result<(), FdTransferError> {
-    let socket_path = PathBuf::from(libdae::constants::DAEMON_SOCKET_PATH);
+    let socket_path = PathBuf::from(library::constants::DAEMON_SOCKET_PATH);
     let socket = UnixStream::connect(socket_path.clone())
         .map_err(|e| FdTransferError::Connection(e, socket_path))?;
     let socket_fd: std::os::fd::RawFd = socket.as_raw_fd();

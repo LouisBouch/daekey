@@ -6,10 +6,10 @@ use crossbeam_channel::Sender;
 
 use crate::{
     device_interface::{input::InputMessage, uinput::UInputMessage},
-    router::{ClientExitCode, ClientMessage, ClientToRouterTx},
+    router::{ClientError, ClientMessage, ClientToRouterTx},
 };
 
-use libdae::ipc::{message, socket_connection::ConnectionRx};
+use library::ipc::{message, socket_connection::ConnectionRx};
 
 /// The id of a connection between the daemon and a process.
 pub type ClientId = u64;
@@ -19,13 +19,13 @@ struct DropGuard {
     /// Channel to transmit to the router.
     router_tx: ClientToRouterTx,
     /// The exit code of the listener.
-    pub exit_code: ClientExitCode,
+    pub exit_status: Result<(), ClientError>,
 }
 impl DropGuard {
     fn new(router_tx: ClientToRouterTx) -> Self {
         Self {
             router_tx,
-            exit_code: ClientExitCode::Unexpected,
+            exit_status: Err(ClientError::Unexpected),
         }
     }
 }
@@ -33,19 +33,22 @@ impl Drop for DropGuard {
     /// Make sure the router knows the [`ClientListener`] closed so that it can
     /// drop values it stored about it.
     fn drop(&mut self) {
-        // Only errors out if receiver (router) is closed.
-        // Given that only the router cares if a client is dropped, nobody is
-        // left to care in such a case. :(
+        if std::thread::panicking() {
+            self.exit_status = Err(ClientError::Panicked);
+        }
+        // Send will only fail if receiver (router) is closed.
+        // Given that only the router cares if a client closes/errors, nobody will be left to care
+        // for the sending failure.
         let _ = self
             .router_tx
-            .send(ClientMessage::ClientClosed(self.exit_code));
+            .send(ClientMessage::ClientClosed(self.exit_status));
     }
 }
 
 /// Info and logic about the receiving side of a connection with a process.
 pub struct ClientListener {
-    /// The connection with the socket.
-    connection: ConnectionRx<message::FromProcess>,
+    /// Receives messages from the client through a [`ConnectionRx`].
+    connection_rx: ConnectionRx<message::FromProcess>,
     /// Channel to transmit to the router.
     router_tx: ClientToRouterTx,
     /// Channel to transmit to input.
@@ -62,7 +65,7 @@ impl ClientListener {
         uinput_tx: Sender<UInputMessage>,
     ) -> Self {
         Self {
-            connection,
+            connection_rx: connection,
             router_tx,
             input_tx,
             uinput_tx,
@@ -71,15 +74,28 @@ impl ClientListener {
     /// Launch the connection, which will start listening to the socket.
     pub fn launch(mut self) -> JoinHandle<()> {
         std::thread::spawn(move || {
-            let _guard = DropGuard::new(self.router_tx.clone());
+            let mut _guard = DropGuard::new(self.router_tx.clone());
+            // Number of [`postcard::Error::DeserializeUnexpectedEnd`] errors.
+            // If a few in a row occur, assume the other socket has disconnected.
             loop {
-                match self.connection.recv() {
-                    Ok(m) => self.handle_message(m),
+                match self.connection_rx.recv() {
+                    Ok(m) => match m {
+                        message::FromProcess::Exit => {
+                            _guard.exit_status = Ok(());
+                            break;
+                        }
+                        m => self.handle_message(m),
+                    },
                     Err(e) => {
+                        // For a regular socket, DeserializeUnexpectedEnd represents disconnect.
+                        if e == postcard::Error::DeserializeUnexpectedEnd {
+                            _guard.exit_status = Err(ClientError::SocketConnection);
+                            break;
+                        }
                         eprintln!(
                             "error: failed to deserialize message from the connected process, skipping"
                         );
-                        eprintln!(" cause: {e}");
+                        eprintln!("  cause: {e}");
                     }
                 }
             }
@@ -87,6 +103,9 @@ impl ClientListener {
     }
     /// Handles a message received from the process.
     pub fn handle_message(&mut self, msg: message::FromProcess) {
-        match msg {}
+        match msg {
+            message::FromProcess::Subscribe => todo!(),
+            message::FromProcess::Exit => panic!("should be handled by launch match"),
+        }
     }
 }

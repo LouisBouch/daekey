@@ -30,7 +30,7 @@ impl UInput {
                         eprintln!(
                             "error: failed to deserialize message for the uinput interface, skipping"
                         );
-                        eprintln!(" cause: {e}");
+                        eprintln!("  cause: {e}");
                     }
                 }
             }

@@ -5,3 +5,4 @@
 
 pub const DAEMON_SOCKET_PATH: &str = "/run/daekey/daekey.socket";
 pub const DAEMON_BIN_PATH: &str = "/usr/local/sbin/daekey";
+pub const VIRTUAL_DEVICE_PREFIX: &str = "daekey";

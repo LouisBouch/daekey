@@ -2,8 +2,8 @@
 //! Also handles the creation of the client connections in order to keep the routing list up to date.
 
 use crossbeam_channel::{Receiver, SendError, Sender};
-use libdae::input::event::KeyEvent;
-use libdae::ipc::{message, socket_connection::ConnectionRx, socket_connection::ConnectionTx};
+use library::input::event::KeyEvent;
+use library::ipc::{message, socket_connection::ConnectionRx, socket_connection::ConnectionTx};
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Display;
@@ -20,17 +20,46 @@ use crate::print_err;
 pub enum DeviceInterfaceMessage {}
 
 /// The reason the [`ClientListener`] terminated its loop.
-#[derive(Clone, Debug, Copy)]
-pub enum ClientExitCode {
-    /// The termination occured in an unexpected manner.
+#[derive(Clone, Debug, Copy, PartialEq, Eq)]
+pub enum ClientError {
+    /// Socket was unexpectedly disconnected from the client.
+    SocketConnection,
+    /// The [`ClientListener`] panicked.
+    Panicked,
+    /// The [`ClientListener`] closed unexpectedly.
     Unexpected,
-    /// Some authorized section of the code requested for the termination.
-    Expected,
+}
+impl Display for ClientError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ClientError::SocketConnection => {
+                write!(
+                    f,
+                    "the client listener's socket was disconnected from the client"
+                )
+            }
+            ClientError::Unexpected => {
+                write!(f, "unexpected client listener termination")
+            }
+            ClientError::Panicked => {
+                write!(f, "the client listener panicked")
+            }
+        }
+    }
+}
+impl Error for ClientError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            ClientError::SocketConnection => None,
+            ClientError::Unexpected => None,
+            ClientError::Panicked => None,
+        }
+    }
 }
 /// Message Received from a [`ClientListener`].
 #[derive(Clone, Debug)]
 pub enum ClientMessage {
-    ClientClosed(ClientExitCode),
+    ClientClosed(Result<(), ClientError>),
 }
 /// Wraps a message from a [`ClientListener`] with its id.
 #[derive(Clone, Debug)]
@@ -102,9 +131,9 @@ pub struct Router {
     device_interface_rx: Receiver<DeviceInterfaceMessage>,
     /// Message receiver from a client connection.
     fr_client_rx: Receiver<ClientMessageWrapper>,
-    /// Receives receiver new connections from the [`Connector`].
+    /// Receives receiver new connections from [`crate::ipc::connector::listen_socket_server`].
     fr_connector_rx: Receiver<UnixStream>,
-    /// Will be given to each new [`Connection`].
+    /// Will be given to each new [`ClientListener`].
     client_ctx: ClientContext,
 }
 
@@ -144,7 +173,7 @@ impl Router {
                     recv(self.fr_client_rx) -> c_mes => {
                         match c_mes {
                             Ok(m) => self.handle_client_message(m),
-                            Err(e) => panic!("unexpected client listener shutdown, closing daemon: {e}"),
+                            Err(e) => panic!("unexpected client listener sender shutdown, closing daemon: {e}"),
                         }
                     },
                     recv(self.fr_connector_rx) -> c_mes => {
@@ -165,15 +194,22 @@ impl Router {
     fn handle_client_message(&mut self, msg: ClientMessageWrapper) {
         let ClientMessageWrapper { client_id, message } = msg;
         match message {
-            ClientMessage::ClientClosed(client_exit_code) => todo!(),
+            ClientMessage::ClientClosed(client_exit_code) => {
+                if let Err(e) = client_exit_code {
+                    crate::print_err(Box::new(e));
+                }
+                self.client_map.remove(&client_id);
+                for (_, clients) in self.client_subscription_map.iter_mut() {
+                    clients.retain(|v| *v != client_id);
+                }
+            }
         }
     }
-    /// Createa a new client connection given a socket to a process.
+    /// Createa a new client connection given a socket to a client.
     fn launch_new_client(
         &mut self,
         stream: UnixStream,
     ) -> Result<JoinHandle<()>, ClientLaunchError> {
-        // TODO: TEST THIS.
         let client_rx = ConnectionRx::<message::FromProcess>::new(
             stream.try_clone().map_err(ClientLaunchError::SocketClone)?,
         );

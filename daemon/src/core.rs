@@ -82,14 +82,14 @@ impl Error for RuntimeError {
 /// This function should run forever, so it will only return on an error.
 pub fn launch_daemon() -> RuntimeError {
     // Start socket server.
-    let (connector_tx, fr_connector_rx) = crossbeam_channel::unbounded();
+    let (fr_connector_tx, fr_connector_rx) = crossbeam_channel::unbounded();
     let socket_server = match connector::create_socket_server() {
         Ok(s) => s,
         Err(e) => {
             return RuntimeError::SocketServer(e);
         }
     };
-    let socket_server_handle = connector::listen_socket_server(socket_server, connector_tx);
+    let socket_server_handle = connector::listen_socket_server(socket_server, fr_connector_tx);
 
     // Define channels.
     let (fr_dev_interface_tx, fr_dev_interface_rx) = crossbeam_channel::unbounded();

@@ -2,13 +2,12 @@
 
 use std::{
     ops::Deref,
-    os::unix::net::UnixStream,
     sync::{Arc, Mutex},
 };
 
 use crate::ipc::{
     message::FromProcess,
-    socket_connection::{self, ConnectionTx},
+    socket_connection::{ConnectionTx},
 };
 
 /// Used as an API for the app's functionalities.
@@ -20,6 +19,13 @@ impl Handle {
     pub(crate) fn new(daemon_connection: ConnectionTx<FromProcess>) -> Self {
         Handle {
             daemon_connection: daemon_connection,
+        }
+    }
+    /// Closes the connection with the daemon.
+    pub fn exit(&mut self) {
+        if let Err(e) = self.daemon_connection.send(FromProcess::Exit) {
+            eprintln!("error: failed to request disconnection");
+            eprintln!("  cause: {e}");
         }
     }
     //TODO: Implement api functions

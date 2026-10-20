@@ -6,6 +6,10 @@ use serde::{Deserialize, Serialize};
 /// A message from a connected process.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum FromProcess {
+    /// Client will disconnect.
+    Exit,
+    /// Process wants to subscribe to a key.
+    Subscribe,
 }
 
 

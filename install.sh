@@ -5,12 +5,12 @@ cd "$(dirname -- "${BASH_SOURCE[0]}")" || exit 1
 
 if [[ "$1" == "--debug" ]]; then
   target="debug"
-  cargo build -p bindae || exit 1
+  cargo build -p daemon || exit 1
 else
   target="release"
-  cargo build --release -p bindae || exit 1
+  cargo build --release -p daemon || exit 1
 fi
 
 echo -e "\033[32mInstalling binary in $target mode... \033[0m"
-sudo cp target/"$target"/bindae /usr/local/sbin/daekey
+sudo cp target/"$target"/daemon /usr/local/sbin/daekey
 # User must restart the service to use the updated binary.

@@ -103,7 +103,8 @@ impl Error for SocketServerError {
 
 /// Create the socket server other processes will use to connect to this daemon.
 pub fn create_socket_server() -> Result<UnixListener, SocketServerError> {
-    let socket_path = PathBuf::from(libdae::constants::DAEMON_SOCKET_PATH);
+    // TODO: Test all the checks.
+    let socket_path = PathBuf::from(library::constants::DAEMON_SOCKET_PATH);
     // Check if path is directory.
     if socket_path.is_dir() {
         return Err(SocketServerError::SocketPathIsDir(socket_path));
@@ -152,14 +153,14 @@ pub fn create_socket_server() -> Result<UnixListener, SocketServerError> {
 /// # Parameters
 ///
 /// * `socket_server` - The server listening for new connections to the daemon.
-/// * `connector_tx` - The channel to send new connection sockets over.
+/// * `router_tx` - The channel to send new connection sockets over.
 ///
 /// # Return
 ///
 /// The handle for the thread listening for new connections.
 pub fn listen_socket_server(
     socket_server: UnixListener,
-    connector_tx: Sender<UnixStream>,
+    router_tx: Sender<UnixStream>,
 ) -> JoinHandle<()> {
     std::thread::spawn(move || {
         loop {
@@ -168,14 +169,14 @@ pub fn listen_socket_server(
                 match stream {
                     Ok(stream) => {
                         subsequent_stream_err = 0;
-                        connector_tx
+                        router_tx
                             .send(stream)
                             .expect("other end of channel should be open");
                     }
                     Err(e) => {
                         subsequent_stream_err += 1;
                         eprintln!("Failed to get new connection: {e}");
-                        if subsequent_stream_err == 100 {
+                        if subsequent_stream_err >= 100 {
                             panic!("too many subsequent stream errors");
                         }
                         // Sleep to prevent fast error loop.
