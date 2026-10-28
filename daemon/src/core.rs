@@ -10,7 +10,7 @@ use std::{
 use crate::{
     device_interface::{input::Input, uinput::UInput},
     ipc::connector::{self, SocketServerError},
-    router::Router,
+    client_gateway::Gateway,
 };
 
 /// Different types of threads launched by the daemon.
@@ -75,6 +75,7 @@ impl Error for RuntimeError {
     }
 }
 
+// TODO: NEXT FIX CORE AND ALL THE FUCKING ERRORS
 /// Launches the daemon.
 ///
 /// # Return
@@ -97,13 +98,15 @@ pub fn launch_daemon() -> RuntimeError {
     let (to_input_tx, to_input_rx) = crossbeam_channel::unbounded();
 
     // Start UInput interface.
+    // TODO: NEXT Convert to logical device.
     let uinput_handle = UInput::new(fr_dev_interface_tx.clone(), to_uinput_rx).launch();
 
     // Start Input interface.
+    // TODO: NEXT Make input send its stuff to the logical device instead of the gateway.
     let input_handle = Input::new(fr_dev_interface_tx, to_input_rx, to_uinput_tx.clone()).launch();
 
     // Start Router.
-    let router_handle = Router::new(
+    let router_handle = Gateway::new(
         fr_dev_interface_rx,
         fr_connector_rx,
         to_uinput_tx,
@@ -163,7 +166,7 @@ fn watch_handles(handle_tuples: Vec<(JoinHandle<()>, Thread)>) -> ThreadError {
     err_rx.recv().expect("senders should not be closed")
 }
 /// Turns a panic payload from a join on a handle into a readable [`String`].
-fn format_panic(panic: &(dyn Any + Send + 'static)) -> String {
+pub fn format_panic(panic: &(dyn Any + Send + 'static)) -> String {
     if let Some(e) = panic.downcast_ref::<String>() {
         e.to_owned()
     } else if let Some(&e) = panic.downcast_ref::<&str>() {

@@ -1,13 +1,12 @@
 use std::{error::Error, fmt::Display, process::ExitCode};
 
-use evdev::{BusType, EventType};
-
 pub mod compositor_interface;
 mod core;
 mod device_interface;
 mod fd_transfer;
 pub mod ipc;
-mod router;
+mod client_gateway;
+pub mod logical_device;
 
 /// Errors that can occur when launching the daemon.
 #[derive(Debug)]

@@ -13,6 +13,7 @@ use crate::ipc::{
 /// Used as an API for the app's functionalities.
 pub struct Handle {
     /// Outgoing connection to the daemon.
+    /// TODO: Make it use a SimulatedTx
     daemon_connection: ConnectionTx<FromProcess>,
 }
 impl Handle {

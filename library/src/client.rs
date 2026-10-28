@@ -12,23 +12,12 @@ use evdev::KeyEvent;
 use rayon::ThreadPoolBuildError;
 
 use crate::{
-    connection::{ConnectionError, socket_from_daemon},
-    handle::Handle,
-    ipc::{
+    binding::{Action, Binding}, connection::{ConnectionError, socket_from_daemon}, handle::Handle, ipc::{
         message::FromDaemon,
         socket_connection::{self, ConnectionRx},
-    },
+    }, keys::modded_key::ModdedKey
 };
 
-/// An action taken by the [`Client`].
-pub enum Action {
-    /// Run a closure using a pool of threads.
-    Closure(Arc<dyn Fn(Handle) + Send + Sync>),
-    /// Toggles the bindings on or off.
-    ToggleBindings,
-    /// Disconnects the process from the daemon.
-    Exit,
-}
 #[derive(Debug)]
 /// Possible errors when instantiating a new [`Client`].
 pub enum InstantiationError {
@@ -90,6 +79,7 @@ impl Error for RunError {
 
 /// An instance of a connection to the daemon.
 pub struct Client {
+    // TODO: VERY IMPORTANT NEXT: GIVE A THREAD POOL PER MODDEDKEY+STATE INTEAD OF FOR THE ENTIRE MAP SCRIPT.
     /// Parked threads to be used by closures.
     thread_pool: rayon::ThreadPool,
     /// List of handles to be handed to closures.
@@ -98,8 +88,8 @@ pub struct Client {
     daemon_rx: ConnectionRx<FromDaemon>,
     /// Whether the bindings' actions will be executed (The bindings that allow for unpausing are not paused)
     bindings_active: bool,
-    /// The [`Action`] associated for each binding's [`KeyEvent`].
-    bindings: HashMap<KeyEvent, Action>,
+    /// The list of [`Binding`] and its associated [`ModdedKey`].
+    bindings: HashMap<ModdedKey, Binding>,
 }
 impl Client {
     /// Creates a new [`Client`] and connects to the daemon.
@@ -152,8 +142,6 @@ impl Client {
             }
         }
     }
-    pub fn add_binding(&mut self, key_event: &KeyEvent, action: &Action) {}
-    /// Execute an [`Action`] defined by a [`KeyEvent`] binding.
-    fn execute_action(&mut self, action: &Action) {}
+    pub fn add_binding(&mut self, modded_key: &ModdedKey, binding: &Binding) {}
 }
 // TODO: Impl remaining functions.

@@ -4,7 +4,7 @@ use std::thread::JoinHandle;
 
 use crossbeam_channel::{Receiver, Sender};
 
-use crate::router::DeviceInterfaceMessage;
+use crate::client_gateway::LogicalDeviceMessage;
 
 /// Messages that can be sent to the uinput interface.
 pub enum UInputMessage {}
@@ -12,12 +12,12 @@ pub enum UInputMessage {}
 /// Holds necessary values to interface with uinput and talk back to the [`Router`].
 pub struct UInput {
     /// Used to send messages to the [`Router`].
-    router_tx: Sender<DeviceInterfaceMessage>,
+    router_tx: Sender<LogicalDeviceMessage>,
     /// Channel used to receive messages.
     rx: Receiver<UInputMessage>,
 }
 impl UInput {
-    pub fn new(router_tx: Sender<DeviceInterfaceMessage>, rx: Receiver<UInputMessage>) -> Self {
+    pub fn new(router_tx: Sender<LogicalDeviceMessage>, rx: Receiver<UInputMessage>) -> Self {
         Self { router_tx, rx }
     }
     /// Launch the interface which will listen to message requests.

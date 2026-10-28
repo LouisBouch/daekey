@@ -182,7 +182,7 @@ pub fn socket_from_daemon() -> Result<UnixStream, ConnectionError> {
             "--rgid",
             SOCKET_OWNER_NAME,
             constants::DAEMON_BIN_PATH,
-            "helper"
+            "helper",
         ])
         .stdout(Stdio::from(OwnedFd::from(socket_daemon_end)))
         .spawn()
