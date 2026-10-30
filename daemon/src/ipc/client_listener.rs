@@ -1,11 +1,12 @@
 //! Handles listening of a connected process.
 
+use std::ops::ControlFlow;
 use std::thread::JoinHandle;
 
 use crate::{client_gateway::ClientListenerError, logical_device::router::SimulatedTx};
 
-use library::ipc::{message, socket_connection::ConnectionRx};
-use library::daemon_protocol::logical_device::SimulatedMessage;
+use library::ipc::message::FromProcess;
+use library::ipc::socket_connection::ConnectionRx;
 
 /// Notifies router when dropped.
 struct DropGuard {
@@ -22,7 +23,7 @@ impl Drop for DropGuard {
     /// drop values it stored about it.
     fn drop(&mut self) {
         self.device_tx
-            .send(SimulatedMessage::Close)
+            .send(FromProcess::Close)
             .expect("the logical device should not be closed");
     }
 }
@@ -30,13 +31,13 @@ impl Drop for DropGuard {
 /// Info and logic about the receiving side of a connection with a process.
 pub struct ClientListener {
     /// Receives messages from the client through a [`ConnectionRx`].
-    connection_rx: ConnectionRx<message::FromProcess>,
+    connection_rx: ConnectionRx<FromProcess>,
     /// Channel to transmit to the logical device.
     device_tx: SimulatedTx,
 }
 
 impl ClientListener {
-    pub fn new(connection_rx: ConnectionRx<message::FromProcess>, device_tx: SimulatedTx) -> Self {
+    pub fn new(connection_rx: ConnectionRx<FromProcess>, device_tx: SimulatedTx) -> Self {
         Self {
             connection_rx,
             device_tx,
@@ -46,14 +47,13 @@ impl ClientListener {
     pub fn launch(mut self) -> JoinHandle<Result<(), ClientListenerError>> {
         std::thread::spawn(move || {
             let mut _guard = DropGuard::new(self.device_tx.clone());
-            // Number of [`postcard::Error::DeserializeUnexpectedEnd`] errors.
-            // If a few in a row occur, assume the other socket has disconnected.
             loop {
                 match self.connection_rx.recv() {
-                    Ok(m) => match m {
-                        message::FromProcess::Exit => return Ok(()),
-                        m => self.handle_message(m),
-                    },
+                    Ok(m) => {
+                        if self.handle_message(m).is_break() {
+                            return Ok(());
+                        }
+                    }
                     Err(e) => {
                         // For a regular socket, DeserializeUnexpectedEnd represents disconnect.
                         if e == postcard::Error::DeserializeUnexpectedEnd {
@@ -69,10 +69,12 @@ impl ClientListener {
         })
     }
     /// Handles a message received from the process.
-    pub fn handle_message(&mut self, msg: message::FromProcess) {
+    pub fn handle_message(&mut self, msg: FromProcess) -> ControlFlow<()> {
         match msg {
-            message::FromProcess::Subscribe => todo!(),
-            message::FromProcess::Exit => panic!("should be handled by launch match"),
+            FromProcess::Subscribe => todo!(),
+            FromProcess::Close => ControlFlow::Break(()),
+            FromProcess::Request(_) => todo!(),
+            FromProcess::SetPause(_) => todo!(),
         }
     }
 }

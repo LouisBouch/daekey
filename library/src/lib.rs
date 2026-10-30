@@ -5,8 +5,6 @@ mod connection;
 pub mod ipc;
 #[doc(hidden)]
 pub mod constants;
-#[doc(hidden)]
-pub mod daemon_protocol;
 
 // User facing modules.
 pub mod keys;

@@ -1,5 +1,17 @@
 //! Exposes bit flags for different modifiers.
 
+use serde::{Deserialize, Serialize};
+
+
+/// What [`Modifiers`] to use to match to bindind.
+#[derive(Serialize, Deserialize, Debug, Eq, Hash, PartialEq, Copy, Clone)]
+pub enum ModifiersMatch {
+    /// Any [`Modifiers`] will match to the binding.
+    Any,
+    /// Exact set of [`Modifiers`] will match to the binding.
+    Exact(Modifiers),
+}
+
 pub type Modifiers = u16;
 pub const NONE: Modifiers = 0b0;
 

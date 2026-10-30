@@ -13,7 +13,6 @@ use crate::ipc::{
 /// Used as an API for the app's functionalities.
 pub struct Handle {
     /// Outgoing connection to the daemon.
-    /// TODO: Make it use a SimulatedTx
     daemon_connection: ConnectionTx<FromProcess>,
 }
 impl Handle {
@@ -24,7 +23,7 @@ impl Handle {
     }
     /// Closes the connection with the daemon.
     pub fn exit(&mut self) {
-        if let Err(e) = self.daemon_connection.send(FromProcess::Exit) {
+        if let Err(e) = self.daemon_connection.send(FromProcess::Close) {
             eprintln!("error: failed to request disconnection");
             eprintln!("  cause: {e}");
         }

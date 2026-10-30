@@ -150,6 +150,7 @@ impl Display for ThreadError {
     }
 }
 impl Error for ThreadError {}
+// TODO: Use [`Watcher`] instead of these methods.
 /// Checks the handles and return if any of them fails.
 fn watch_handles(handle_tuples: Vec<(JoinHandle<()>, Thread)>) -> ThreadError {
     let (err_tx, err_rx) = crossbeam_channel::unbounded();

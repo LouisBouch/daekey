@@ -1,12 +1,13 @@
 use std::{error::Error, fmt::Display, process::ExitCode};
 
 pub mod compositor_interface;
+pub mod ipc;
+pub mod watcher;
+pub mod logical_device;
 mod core;
 mod device_interface;
 mod fd_transfer;
-pub mod ipc;
 mod client_gateway;
-pub mod logical_device;
 
 /// Errors that can occur when launching the daemon.
 #[derive(Debug)]
