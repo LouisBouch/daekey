@@ -13,6 +13,7 @@ use crate::{
     client_gateway::Gateway,
     device_interface::{input::Input, uinput::UInput},
     ipc::connector::{self, SocketServerError},
+    logical_device::router::{LogicalDevice, LogicalDeviceHandle},
     watcher::{ThreadExit, ThreadStatus, Watcher},
 };
 
@@ -23,8 +24,8 @@ pub enum Thread {
     ClientGateway,
     /// The input device interface thread.
     Input,
-    /// The uinput device interface thread.
-    Uinput,
+    /// The [`LogicalDevice`] thread.
+    LogicalDevice,
     /// The socket server thread..
     SocketServer,
 }
@@ -37,7 +38,7 @@ impl Display for Thread {
             Thread::Input => {
                 write!(f, "input interface")
             }
-            Thread::Uinput => {
+            Thread::LogicalDevice => {
                 write!(f, "uinput interface")
             }
             Thread::SocketServer => {
@@ -85,43 +86,45 @@ impl Error for RuntimeError {
 ///
 /// This function should run forever, so it will only return on an error.
 pub fn launch_daemon() -> RuntimeError {
+    // Define channels.
+    let (connector_to_gateway_tx, connector_to_gateway_rx) = crossbeam_channel::unbounded();
+    let (logicaldevice_to_gateway_tx, logicaldevice_to_gateway_rx) = crossbeam_channel::unbounded();
+
     // Start socket server.
-    let (fr_connector_tx, fr_connector_rx) = crossbeam_channel::unbounded();
     let socket_server = match connector::create_socket_server() {
         Ok(s) => s,
         Err(e) => {
             return RuntimeError::SocketServer(e);
         }
     };
-    let socket_server_handle = connector::listen_socket_server(socket_server, fr_connector_tx);
+    let socket_server_handle = connector::listen_socket_server(socket_server, connector_to_gateway_tx);
 
-    // Define channels.
-    let (fr_dev_interface_tx, fr_dev_interface_rx) = crossbeam_channel::unbounded();
-    let (to_uinput_tx, to_uinput_rx) = crossbeam_channel::unbounded();
-    let (to_input_tx, to_input_rx) = crossbeam_channel::unbounded();
 
     // Start UInput interface.
-    // TODO: NEXT Convert to logical device.
-    let uinput_handle = UInput::new(fr_dev_interface_tx.clone(), to_uinput_rx).launch();
+    let LogicalDeviceHandle {
+        handle: logical_device_handle,
+        simulated_tx_maker,
+        physical_tx_maker,
+    } = LogicalDevice::new(logicaldevice_to_gateway_tx).launch();
 
     // Start Input interface.
     // TODO: NEXT Make input send its stuff to the logical device instead of the gateway.
-    let input_handle = Input::new(fr_dev_interface_tx, to_input_rx, to_uinput_tx.clone()).launch();
+    let input_handle = Input::new(physical_tx_maker).launch();
 
     // Start Router.
     let gateway_handle = Gateway::new(
-        fr_dev_interface_rx,
-        fr_connector_rx,
-        to_uinput_tx,
-        to_input_tx,
+        logicaldevice_to_gateway_rx,
+        connector_to_gateway_rx,
+        simulated_tx_maker,
     )
     .launch();
     let handles = vec![
         (socket_server_handle, Thread::SocketServer),
-        (uinput_handle, Thread::Uinput),
+        (logical_device_handle, Thread::LogicalDevice),
         (input_handle, Thread::Input),
         (gateway_handle, Thread::ClientGateway),
     ];
+    // Wait for a thread to exit. If it does, error out, the threads should run forever.
     let (watcher, rx) = Watcher::new();
     for (handle, thread) in handles {
         watcher.watch_thread(thread, handle);
@@ -129,7 +132,9 @@ pub fn launch_daemon() -> RuntimeError {
     let ThreadExit {
         key: thread,
         status,
-    } = rx.recv().expect("watcher should be alive");
+    } = rx
+        .recv()
+        .expect("watcher should be alive until the end of the scope");
     let e = match status {
         ThreadStatus::Returned(_) => ThreadError::UnexpectedExit { thread },
         ThreadStatus::Panicked(e) => ThreadError::Panic {

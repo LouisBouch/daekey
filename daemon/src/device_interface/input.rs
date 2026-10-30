@@ -5,47 +5,27 @@ use std::{collections::HashSet, path::PathBuf, thread::JoinHandle};
 use crossbeam_channel::{Receiver, Sender};
 use evdev::{BusType, Device, EventType, uinput::VirtualDevice};
 
-use crate::{client_gateway::LogicalDeviceMessage, device_interface::uinput::UInputMessage, logical_device};
-use library::daemon_protocol;
-
+use crate::logical_device::router::PhysicalTxMaker;
 
 /// Holds necessary values to interface with input devices and talk back to the [`Router`].
 pub struct Input {
-    // /// Used to send messages to the logical device.
-    // logical_tx: ,
+    /// Used to create physical senders to the logical device.
+    logical_tx: PhysicalTxMaker,
 }
-// impl Input {
-//     pub fn new(
-//         router_tx: Sender<LogicalDeviceMessage>,
-//         rx: Receiver<InputMessage>,
-//         uinput_tx: Sender<UInputMessage>,
-//     ) -> Self {
-//         Self {
-//             router_tx,
-//             rx,
-//             uinput_tx,
-//             used_keys: HashSet::new(),
-//         }
-//     }
+impl Input {
+    pub fn new(logical_tx: PhysicalTxMaker) -> Self {
+        Self { logical_tx }
+    }
+    /// Launch the interface which will listen to input devices and message requests.
+    pub fn launch(mut self) -> JoinHandle<()> {
+        std::thread::spawn(move || {
+            todo!()
+        })
+    }
+}
 //     /// Update the used keys.
 //     pub fn set_used_key(&mut self, used_keys: HashSet<Keybind>) {
 //         self.used_keys = used_keys
-//     }
-//     /// Launch the interface which will listen to input devices and message requests.
-//     pub fn launch(mut self) -> JoinHandle<()> {
-//         std::thread::spawn(move || {
-//             loop {
-//                 match self.rx.recv() {
-//                     Ok(m) => self.handle_message(m),
-//                     Err(e) => {
-//                         eprintln!(
-//                             "error: failed to deserialize message for the input interface, skipping"
-//                         );
-//                         eprintln!("  cause: {e}");
-//                     }
-//                 }
-//             }
-//         })
 //     }
 //     /// Handles a message request for the input interface.
 //     pub fn handle_message(&mut self, msg: InputMessage) {

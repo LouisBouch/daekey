@@ -4,7 +4,6 @@ use std::thread::JoinHandle;
 
 use crossbeam_channel::{Receiver, Sender};
 
-use crate::client_gateway::LogicalDeviceMessage;
 
 /// Messages that can be sent to the uinput interface.
 pub enum UInputMessage {}

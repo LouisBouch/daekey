@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use library::keys::{self, KeyCode};
 
-use crate::logical_device::router::DeviceId;
+use crate::logical_device::router::{PhysicalId, SimulatedId};
 
 /// The state of a logical device's key.
 #[derive(PartialEq, Eq, Clone, Copy, Default)]
@@ -50,37 +50,51 @@ pub(super) struct LogicalDeviceState {
     // /// The number of devices holding each key.
     /// key_holds: HashMap<keys::KeyCode, KeyHolds>,
     /// Which keys are being held by which physical device.
-    physical_device_keys: HashMap<u64, HashSet<keys::KeyCode>>,
+    physical_device_keys: HashMap<PhysicalId, HashSet<keys::KeyCode>>,
     /// Which keys are being held by which simulated device.
-    simulated_device_keys: HashMap<u64, HashSet<keys::KeyCode>>,
+    simulated_device_keys: HashMap<SimulatedId, HashSet<keys::KeyCode>>,
 }
 impl LogicalDeviceState {
-    /// Press a key on the logical device.
+    /// Press a key on a simulated device.
     ///
-    /// Returns true if the key is pressed from a released state.
-    pub fn press_key(&mut self, device_id: DeviceId, key_code: KeyCode) -> bool {
-        let device_keys = match device_id {
-            DeviceId::Simulated(id) => self.simulated_device_keys.entry(id),
-            DeviceId::Physical(id) => self.physical_device_keys.entry(id),
-        };
+    /// Returns `true` if the device associated with the [`SimulatedId`] was not
+    /// already holding the key and `false` if the device was holding the key.
+    pub fn press_simulated_key(&mut self, id: SimulatedId, key_code: KeyCode) -> bool {
+        let device_keys = self.simulated_device_keys.entry(id);
         device_keys.or_default().insert(key_code)
     }
-    /// Release a key on the logical device.
+    /// Press a key on a physical device.
     ///
-    /// Returns true if the key is released from a pressed state.
-    pub fn release_key(&mut self, device_id: DeviceId, key_code: KeyCode) -> bool {
-        let device_keys = match device_id {
-            DeviceId::Simulated(id) => self.simulated_device_keys.get_mut(&id),
-            DeviceId::Physical(id) => self.physical_device_keys.get_mut(&id),
-        };
+    /// Returns `true` if the device associated with the [`PhysicalId`] was not
+    /// already holding the key and `false` if the device was pressing the key.
+    pub fn press_physical_key(&mut self, id: PhysicalId, key_code: KeyCode) -> bool {
+        let device_keys = self.physical_device_keys.entry(id);
+        device_keys.or_default().insert(key_code)
+    }
+    /// Release a key on the a simulated device.
+    ///
+    /// Returns `true` if the device associated with the [`SimulatedId`] was
+    /// holding the key and `false` if the device was not pressing the key.
+    pub fn release_simulated_key(&mut self, id: SimulatedId, key_code: KeyCode) -> bool {
+        let device_keys = self.simulated_device_keys.get_mut(&id);
         device_keys.is_some_and(|set| set.remove(&key_code))
     }
-    /// Remove a device from the logical device and return all keys that were dropped by it.
-    pub fn remove_device(&mut self, device_id: DeviceId) -> Vec<KeyCode> {
-        let set = match device_id {
-            DeviceId::Simulated(id) => self.simulated_device_keys.remove(&id),
-            DeviceId::Physical(id) => self.physical_device_keys.remove(&id),
-        };
+    /// Release a key on the a physical device.
+    ///
+    /// Returns `true` if the device associated with the [`PhysicalId`] was
+    /// holding the key and `false` if the device was not pressing the key.
+    pub fn release_physical_key(&mut self, id: PhysicalId, key_code: KeyCode) -> bool {
+        let device_keys = self.physical_device_keys.get_mut(&id);
+        device_keys.is_some_and(|set| set.remove(&key_code))
+    }
+    /// Remove a simulated device from the logical device and return all keys that were dropped by it.
+    pub fn remove_simulated_device(&mut self, id: SimulatedId) -> Vec<KeyCode> {
+        let set = self.simulated_device_keys.remove(&id);
+        set.map_or(Vec::new(), |set| set.into_iter().collect())
+    }
+    /// Remove a physical device from the logical device and return all keys that were dropped by it.
+    pub fn remove_physical_device(&mut self, id: PhysicalId) -> Vec<KeyCode> {
+        let set = self.physical_device_keys.remove(&id);
         set.map_or(Vec::new(), |set| set.into_iter().collect())
     }
     /// Whether the key is held by a physical device or not.

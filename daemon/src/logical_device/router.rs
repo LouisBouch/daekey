@@ -6,7 +6,7 @@ use library::{
     keys::{KeyCode, modded_key::ModdedKey, modifiers::Modifiers},
 };
 
-use crate::client_gateway::LogicalDeviceMessage;
+use crate::{client_gateway::FromLogicalDevice, device_interface::uinput::UInput};
 
 use library::ipc::message::{FromProcess, Request};
 
@@ -92,6 +92,8 @@ impl Id for SimulatedId {
 pub type WrappedSimulatedMessage = WrappedMessage<SimulatedId, FromProcess>;
 /// Sender that ensures messages are wrapped with the simulated device's [`SimulatedId`].
 pub type SimulatedTx = Tx<SimulatedId, FromProcess>;
+/// Creates simulated senders to the logical device with increasing ids.
+pub type SimulatedTxMaker = TxMaker<SimulatedId, FromProcess>;
 
 /// A physical device's id. Comes from an actual physical device.
 /// A device of this type will WILL trigger bindings.
@@ -107,6 +109,8 @@ impl Id for PhysicalId {
 pub type WrappedPhysicalMessage = WrappedMessage<PhysicalId, FromPhysicalDevice>;
 /// Sender that ensures messages are wrapped with the physical device's [`PhysicalId`].
 pub type PhysicalTx = Tx<PhysicalId, FromPhysicalDevice>;
+/// Creates physical senders to the logical device with increasing ids.
+pub type PhysicalTxMaker = TxMaker<SimulatedId, FromProcess>;
 
 /// The state of the key when it was first pressed.
 #[derive(PartialEq, Eq, Clone)]
@@ -169,8 +173,7 @@ impl Subscription {
                 || self.release.as_ref().is_some_and(|e| e.active_when_paused))
     }
 }
-pub type SimulatedTxMaker = TxMaker<SimulatedId, FromProcess>;
-pub type PhysicalTxMaker = TxMaker<SimulatedId, FromProcess>;
+
 /// Contents needed for the logical device runner to track and communicate with the logical device.
 pub struct LogicalDeviceHandle {
     /// Handle for the running thread of the logical device.
@@ -188,7 +191,7 @@ pub struct LogicalDevice {
     /// Receiver for physical device requests.
     physical_rx: Receiver<WrappedPhysicalMessage>,
     /// Sender for the gateway.
-    gateway_tx: Sender<LogicalDeviceMessage>,
+    gateway_tx: Sender<FromLogicalDevice>,
 
     /// List of subscribed clients for each [`ModdedKey`].
     client_subscription_map: HashMap<ModdedKey, HashMap<SimulatedId, Subscription>>,
@@ -197,9 +200,12 @@ pub struct LogicalDevice {
     client_is_paused: HashMap<SimulatedId, bool>,
     /// Stores info about the state of the key when it was pressed.
     key_latches: HashMap<KeyCode, Latch>,
+
+    /// Used to create virtual devices and send inputs to the compositor.
+    uinput: UInput,
 }
 impl LogicalDevice {
-    pub fn new() -> Self {
+    pub fn new(gateway_tx: Sender<FromLogicalDevice>) -> Self {
         todo!()
     }
     /// Start the logical device and return one [`TxMaker`] for each type of devices alongside the
