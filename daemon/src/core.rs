@@ -7,17 +7,20 @@ use std::{
     thread::{self, JoinHandle},
 };
 
+use crossbeam_channel::Receiver;
+
 use crate::{
+    client_gateway::Gateway,
     device_interface::{input::Input, uinput::UInput},
     ipc::connector::{self, SocketServerError},
-    client_gateway::Gateway,
+    watcher::{ThreadExit, ThreadStatus, Watcher},
 };
 
 /// Different types of threads launched by the daemon.
 #[derive(Debug, Clone)]
 pub enum Thread {
     /// The router thread.
-    Router,
+    ClientGateway,
     /// The input device interface thread.
     Input,
     /// The uinput device interface thread.
@@ -28,7 +31,7 @@ pub enum Thread {
 impl Display for Thread {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Thread::Router => {
+            Thread::ClientGateway => {
                 write!(f, "router")
             }
             Thread::Input => {
@@ -106,7 +109,7 @@ pub fn launch_daemon() -> RuntimeError {
     let input_handle = Input::new(fr_dev_interface_tx, to_input_rx, to_uinput_tx.clone()).launch();
 
     // Start Router.
-    let router_handle = Gateway::new(
+    let gateway_handle = Gateway::new(
         fr_dev_interface_rx,
         fr_connector_rx,
         to_uinput_tx,
@@ -117,10 +120,24 @@ pub fn launch_daemon() -> RuntimeError {
         (socket_server_handle, Thread::SocketServer),
         (uinput_handle, Thread::Uinput),
         (input_handle, Thread::Input),
-        (router_handle, Thread::Router),
+        (gateway_handle, Thread::ClientGateway),
     ];
-    // Should never return.
-    RuntimeError::Thread(watch_handles(handles))
+    let (watcher, rx) = Watcher::new();
+    for (handle, thread) in handles {
+        watcher.watch_thread(thread, handle);
+    }
+    let ThreadExit {
+        key: thread,
+        status,
+    } = rx.recv().expect("watcher should be alive");
+    let e = match status {
+        ThreadStatus::Returned(_) => ThreadError::UnexpectedExit { thread },
+        ThreadStatus::Panicked(e) => ThreadError::Panic {
+            thread,
+            formatted_panic: e,
+        },
+    };
+    RuntimeError::Thread(e)
 }
 
 /// Error while running a thread.
@@ -150,29 +167,3 @@ impl Display for ThreadError {
     }
 }
 impl Error for ThreadError {}
-// TODO: Use [`Watcher`] instead of these methods.
-/// Checks the handles and return if any of them fails.
-fn watch_handles(handle_tuples: Vec<(JoinHandle<()>, Thread)>) -> ThreadError {
-    let (err_tx, err_rx) = crossbeam_channel::unbounded();
-    for (handle, thread) in handle_tuples {
-        let err_tx = err_tx.clone();
-        thread::spawn(move || match handle.join() {
-            Ok(_) => err_tx.send(ThreadError::UnexpectedExit { thread }),
-            Err(e) => err_tx.send(ThreadError::Panic {
-                thread: thread,
-                formatted_panic: format_panic(e.as_ref()),
-            }),
-        });
-    }
-    err_rx.recv().expect("senders should not be closed")
-}
-/// Turns a panic payload from a join on a handle into a readable [`String`].
-pub fn format_panic(panic: &(dyn Any + Send + 'static)) -> String {
-    if let Some(e) = panic.downcast_ref::<String>() {
-        e.to_owned()
-    } else if let Some(&e) = panic.downcast_ref::<&str>() {
-        e.to_owned()
-    } else {
-        "unknown panic type".to_owned()
-    }
-}

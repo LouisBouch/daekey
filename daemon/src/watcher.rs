@@ -27,6 +27,11 @@ pub enum ThreadStatus<V> {
 }
 
 /// Used to watch for threads' death.
+///
+/// Generics:
+///
+/// * `K` - An identifier type for the threads being watched.
+/// * `V` - The return value type of the thread. Same as [`JoinHandle<V>`].
 #[derive(Debug, Clone)]
 pub struct Watcher<K, V> {
     tx: Sender<ThreadExit<K, V>>,
