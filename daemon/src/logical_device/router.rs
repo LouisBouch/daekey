@@ -19,13 +19,13 @@ pub enum FromPhysicalDevice {
     Close,
 }
 
-trait Id: Copy + Default + Eq + PartialEq + Hash {
+pub trait Id: Copy + Default + Eq + PartialEq + Hash {
     /// Generates the Id that comes after the current one.
     fn next(&mut self) -> Self;
 }
 
 /// Wrapper around a message to include sender id.
-struct WrappedMessage<I: Id, M> {
+pub struct WrappedMessage<I: Id, M> {
     /// Id of the device sending the message.
     id: I,
     /// Message to send.
@@ -33,14 +33,14 @@ struct WrappedMessage<I: Id, M> {
 }
 // TODO: Remove clone if each device only needs one sender.
 #[derive(Clone)]
-struct Tx<I: Id, M> {
+pub struct Tx<I: Id, M> {
     /// Id of the device that uses the sender.
     id: I,
     /// Sender channel.
     sender: Sender<WrappedMessage<I, M>>,
 }
 impl<I: Id, M> Tx<I, M> {
-    pub fn new(id: I, sender: Sender<WrappedMessage<I, M>>) -> Self {
+    fn new(id: I, sender: Sender<WrappedMessage<I, M>>) -> Self {
         Self { id, sender }
     }
     pub fn send(&self, message: M) -> Result<(), SendError<WrappedMessage<I, M>>> {
@@ -51,7 +51,7 @@ impl<I: Id, M> Tx<I, M> {
     }
 }
 /// Creates senders with increasing ids.
-struct TxMaker<I: Id, M> {
+pub struct TxMaker<I: Id, M> {
     /// Id of the next device that will use the sender.
     next_id: I,
     /// Sender channel.

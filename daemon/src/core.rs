@@ -108,7 +108,6 @@ pub fn launch_daemon() -> RuntimeError {
     } = LogicalDevice::new(logicaldevice_to_gateway_tx).launch();
 
     // Start Input interface.
-    // TODO: NEXT Make input send its stuff to the logical device instead of the gateway.
     let input_handle = Input::new(physical_tx_maker).launch();
 
     // Start Router.

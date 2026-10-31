@@ -10,33 +10,9 @@ pub enum UInputMessage {}
 
 /// Holds necessary values to interface with uinput and talk back to the [`Router`].
 pub struct UInput {
-    /// Used to send messages to the [`Router`].
-    router_tx: Sender<LogicalDeviceMessage>,
-    /// Channel used to receive messages.
-    rx: Receiver<UInputMessage>,
 }
 impl UInput {
-    pub fn new(router_tx: Sender<LogicalDeviceMessage>, rx: Receiver<UInputMessage>) -> Self {
-        Self { router_tx, rx }
-    }
-    /// Launch the interface which will listen to message requests.
-    pub fn launch(mut self) -> JoinHandle<()> {
-        std::thread::spawn(move || {
-            loop {
-                match self.rx.recv() {
-                    Ok(m) => self.handle_message(m),
-                    Err(e) => {
-                        eprintln!(
-                            "error: failed to deserialize message for the uinput interface, skipping"
-                        );
-                        eprintln!("  cause: {e}");
-                    }
-                }
-            }
-        })
-    }
-    /// Handles a message request for the uinput interface.
-    pub fn handle_message(&mut self, msg: UInputMessage) {
-        match msg {}
+    pub fn new() -> Self {
+        Self { }
     }
 }
