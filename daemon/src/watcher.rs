@@ -26,22 +26,25 @@ pub enum ThreadStatus<V> {
     Panicked(String),
 }
 
-/// Used to watch for threads' death.
+/// Converts [`JoinHandle`]s into [`ThreadExit`] message and buffers them into a [`Receiver`].
 ///
 /// Generics:
 ///
 /// * `K` - An identifier type for the threads being watched.
 /// * `V` - The return value type of the thread. Same as [`JoinHandle<V>`].
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Watcher<K, V> {
+    /// Sending side for [`ThreadExit`] messages.
     tx: Sender<ThreadExit<K, V>>,
+    /// Receiving side for [`ThreadExit`] messages.
+    rx: Receiver<ThreadExit<K, V>>,
 }
 impl<K: Send + 'static, V: Send + 'static> Watcher<K, V> {
     /// Create a new watcher and return with it
     /// the channel on which notifications will be sent.
-    pub fn new() -> (Self, Receiver<ThreadExit<K, V>>) {
+    pub fn new() -> Self {
         let (tx, rx) = crossbeam_channel::unbounded();
-        (Self { tx }, rx)
+        Self { tx, rx }
     }
     /// Watch for a thread's termination through its [`JoinHandle`].
     pub fn watch_thread(&self, key: K, handle: JoinHandle<V>) {
@@ -56,6 +59,16 @@ impl<K: Send + 'static, V: Send + 'static> Watcher<K, V> {
                 status: ThreadStatus::Panicked(format_panic(e.as_ref())),
             }),
         });
+    }
+    /// Exposes the [`Watcher`]'s receiver.
+    /// Holds a list of dead threads in the form of [`ThreadExit`] messages.
+    pub fn rx(&self) -> &Receiver<ThreadExit<K, V>> {
+        &self.rx
+    }
+}
+impl<K: Send + 'static, V: Send + 'static> Default for Watcher<K, V> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 /// Turns a panic payload from a join on a handle into a readable [`String`].

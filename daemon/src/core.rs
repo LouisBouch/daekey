@@ -79,7 +79,6 @@ impl Error for RuntimeError {
     }
 }
 
-// TODO: NEXT FIX CORE AND ALL THE FUCKING ERRORS
 /// Launches the daemon.
 ///
 /// # Return
@@ -97,8 +96,8 @@ pub fn launch_daemon() -> RuntimeError {
             return RuntimeError::SocketServer(e);
         }
     };
-    let socket_server_handle = connector::listen_socket_server(socket_server, connector_to_gateway_tx);
-
+    let socket_server_handle =
+        connector::listen_socket_server(socket_server, connector_to_gateway_tx);
 
     // Start UInput interface.
     let LogicalDeviceHandle {
@@ -124,14 +123,15 @@ pub fn launch_daemon() -> RuntimeError {
         (gateway_handle, Thread::ClientGateway),
     ];
     // Wait for a thread to exit. If it does, error out, the threads should run forever.
-    let (watcher, rx) = Watcher::new();
+    let watcher = Watcher::new();
     for (handle, thread) in handles {
         watcher.watch_thread(thread, handle);
     }
     let ThreadExit {
         key: thread,
         status,
-    } = rx
+    } = watcher
+        .rx()
         .recv()
         .expect("watcher should be alive until the end of the scope");
     let e = match status {

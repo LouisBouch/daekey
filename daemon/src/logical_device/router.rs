@@ -17,6 +17,8 @@ pub enum FromPhysicalDevice {
     Request(Vec<Request>),
     /// Close the connection.
     Close,
+    // TODO: Add resync message? It would reset all currently held keys to the values specified in
+    // the received vector.
 }
 
 pub trait Id: Copy + Default + Eq + PartialEq + Hash {
@@ -110,7 +112,7 @@ pub type WrappedPhysicalMessage = WrappedMessage<PhysicalId, FromPhysicalDevice>
 /// Sender that ensures messages are wrapped with the physical device's [`PhysicalId`].
 pub type PhysicalTx = Tx<PhysicalId, FromPhysicalDevice>;
 /// Creates physical senders to the logical device with increasing ids.
-pub type PhysicalTxMaker = TxMaker<SimulatedId, FromProcess>;
+pub type PhysicalTxMaker = TxMaker<PhysicalId, FromPhysicalDevice>;
 
 /// The state of the key when it was first pressed.
 #[derive(PartialEq, Eq, Clone)]

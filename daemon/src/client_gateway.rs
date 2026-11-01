@@ -83,10 +83,8 @@ pub enum FromLogicalDevice {}
 pub struct Gateway {
     /// Map listing the [`ConnectionTx`] for each active session.
     client_map: HashMap<SimulatedId, ConnectionTx<message::FromDaemon>>,
-    /// Can watch over handles.
+    /// Watches threads and reports their death.
     watcher: Watcher<SimulatedId, Result<(), ClientListenerError>>,
-    /// Receives client exit codes from the watcher.
-    watcher_rx: Receiver<ThreadExit<SimulatedId, Result<(), ClientListenerError>>>,
 
     /// Creates a new sender that each new [`ClientListener`] will use.
     simulated_tx_maker: SimulatedTxMaker,
@@ -103,14 +101,12 @@ impl Gateway {
         connector_rx: Receiver<UnixStream>,
         simulated_tx_maker: SimulatedTxMaker,
     ) -> Self {
-        let (watcher, watcher_rx) = Watcher::new();
         Self {
             simulated_tx_maker,
             client_map: HashMap::new(),
             logical_device_rx,
-            watcher_rx,
             connector_rx,
-            watcher,
+            watcher: Watcher::new(),
         }
     }
     /// Launch the routing thread of the app, which mostly handles message passing.
@@ -124,7 +120,7 @@ impl Gateway {
                             Err(e) => panic!("unexpected device interface shutdown, closing daemon: {e}"),
                         }
                     },
-                    recv(self.watcher_rx) -> c_mes => {
+                    recv(self.watcher.rx()) -> c_mes => {
                         match c_mes {
                             Ok(m) => self.handle_client_watcher_message(m),
                             Err(e) => panic!("unexpected client listener sender shutdown, closing daemon: {e}"),
