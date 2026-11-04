@@ -44,7 +44,18 @@ impl KeyHolds {
         self.simulated > 0 || self.physical > 0
     }
 }
+/// A list of keys that were pressed are a list of keys that were released.
+pub struct KeyChanges {
+    /// List of pressed keys.
+    pub pressed: Vec<KeyCode>,
+    /// List of released keys.
+    pub released: Vec<KeyCode>,
+}
 
+enum Id {
+    Simulated(SimulatedId),
+    Physical(PhysicalId),
+}
 /// The state of the logical device.
 pub(super) struct LogicalDeviceState {
     // /// The number of devices holding each key.
@@ -108,5 +119,48 @@ impl LogicalDeviceState {
         self.simulated_device_keys
             .values()
             .any(|set| set.contains(&key_code))
+    }
+    /// Set the list of pressed keys for a device.
+    ///
+    /// Returns the list of keys that are newly pressed and the list of keys that used to be pressed
+    /// but are not anymore.
+    pub fn set_device_presses(&mut self, id: Id, keys: Vec<KeyCode>) -> KeyChanges {
+        let mut pressed = Vec::new();
+        let mut released = Vec::new();
+
+        let mut set = match id {
+            Id::Simulated(simulated_id) => self
+                .simulated_device_keys
+                .remove(&simulated_id)
+                .unwrap_or_default(),
+            Id::Physical(physical_id) => self
+                .physical_device_keys
+                .remove(&physical_id)
+                .unwrap_or_default(),
+        };
+        let mut new_set = HashSet::new();
+        for key in keys {
+            new_set.insert(key);
+            if set.remove(&key) {
+                continue;
+            }
+            pressed.push(key);
+        }
+        for key in set.iter() {
+            released.push(*key);
+        }
+        match id {
+            Id::Simulated(simulated_id) => self.simulated_device_keys.insert(simulated_id, new_set),
+            Id::Physical(physical_id) => self.physical_device_keys.insert(physical_id, new_set),
+        };
+
+        KeyChanges { pressed, released }
+    }
+    /// Set the list of pressed keys for a physical device.
+    ///
+    /// Returns the list of keys that are newly pressed and the list of keys that used to be pressed
+    /// but are not anymore.
+    pub fn set_physical_presses(&mut self, id: PhysicalId, keys: Vec<KeyCode>) -> KeyChanges {
+        self.set_device_presses(Id::Physical(id), keys)
     }
 }
