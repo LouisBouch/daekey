@@ -47,9 +47,9 @@ impl KeyHolds {
 /// A list of keys that were pressed are a list of keys that were released.
 pub struct KeyChanges {
     /// List of pressed keys.
-    pub pressed: Vec<KeyCode>,
+    pub pressed: HashSet<KeyCode>,
     /// List of released keys.
-    pub released: Vec<KeyCode>,
+    pub released: HashSet<KeyCode>,
 }
 
 enum Id {
@@ -124,35 +124,19 @@ impl LogicalDeviceState {
     ///
     /// Returns the list of keys that are newly pressed and the list of keys that used to be pressed
     /// but are not anymore.
-    pub fn set_device_presses(&mut self, id: Id, keys: Vec<KeyCode>) -> KeyChanges {
-        let mut pressed = Vec::new();
-        let mut released = Vec::new();
-
-        let mut set = match id {
+    pub fn set_device_presses(&mut self, id: Id, keys: HashSet<KeyCode>) -> KeyChanges {
+        let set = match id {
             Id::Simulated(simulated_id) => self
                 .simulated_device_keys
-                .remove(&simulated_id)
-                .unwrap_or_default(),
-            Id::Physical(physical_id) => self
-                .physical_device_keys
-                .remove(&physical_id)
-                .unwrap_or_default(),
-        };
-        let mut new_set = HashSet::new();
-        for key in keys {
-            new_set.insert(key);
-            if set.remove(&key) {
-                continue;
+                .insert(simulated_id, keys.clone()),
+            Id::Physical(physical_id) => {
+                self.physical_device_keys.insert(physical_id, keys.clone())
             }
-            pressed.push(key);
         }
-        for key in set.iter() {
-            released.push(*key);
-        }
-        match id {
-            Id::Simulated(simulated_id) => self.simulated_device_keys.insert(simulated_id, new_set),
-            Id::Physical(physical_id) => self.physical_device_keys.insert(physical_id, new_set),
-        };
+        .unwrap_or_default();
+
+        let pressed = keys.difference(&set).copied().collect();
+        let released = set.difference(&keys).copied().collect();
 
         KeyChanges { pressed, released }
     }
@@ -160,7 +144,7 @@ impl LogicalDeviceState {
     ///
     /// Returns the list of keys that are newly pressed and the list of keys that used to be pressed
     /// but are not anymore.
-    pub fn set_physical_presses(&mut self, id: PhysicalId, keys: Vec<KeyCode>) -> KeyChanges {
+    pub fn set_physical_presses(&mut self, id: PhysicalId, keys: HashSet<KeyCode>) -> KeyChanges {
         self.set_device_presses(Id::Physical(id), keys)
     }
 }
