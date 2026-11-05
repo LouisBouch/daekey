@@ -1,4 +1,4 @@
-use std::{collections::HashMap, hash::Hash, thread::JoinHandle};
+use std::{collections::{HashMap, HashSet}, hash::Hash, thread::JoinHandle};
 
 use crossbeam_channel::{Receiver, SendError, Sender};
 use library::{
@@ -17,8 +17,8 @@ pub enum FromPhysicalDevice {
     Request(Vec<Request>),
     /// Close the connection.
     Close,
-    // TODO: Add resync message? It would reset all currently held keys to the values specified in
-    // the received vector.
+    /// Resync a device by setting the currently held keys for the device.
+    Sync(HashSet<KeyCode>),
 }
 
 pub trait Id: Copy + Default + Eq + PartialEq + Hash {

@@ -1,24 +1,13 @@
 //! Defines how the daemon will receive inputs from the compositor.
 
-use std::{collections::HashSet, os::fd::AsFd, path::PathBuf, thread::JoinHandle};
-
-use crossbeam_channel::{Receiver, Sender};
-use evdev::{
-    BusType, Device, EventSummary, EventType, InputEvent, SynchronizationCode,
-    uinput::VirtualDevice,
-};
-use nix::{
-    errno::Errno,
-    libc,
-    poll::{PollFlags, PollTimeout, poll},
-};
+use std::{collections::HashSet, path::PathBuf, thread::JoinHandle};
 
 use crate::{
-    logical_device::router::{FromPhysicalDevice, PhysicalTx, PhysicalTxMaker},
-    watcher::{ThreadExit, ThreadStatus, Watcher},
+    device_interface::input::device_listen::{DeviceError, DeviceListen}, logical_device::router::PhysicalTxMaker, watcher::{ThreadExit, ThreadStatus, Watcher}
 };
 
-const MAX_SUCCESSIVE_ERRORS: u32 = 20;
+use evdev::{BusType, Device, EventType};
+mod device_listen;
 
 /// Holds necessary values to interface with input devices and talk back to the [`Router`].
 pub struct Input {
@@ -27,7 +16,7 @@ pub struct Input {
     /// Path to active devices. Starts with `/dev/input`.
     devices: HashSet<PathBuf>,
     /// Watches threads and reports their death.
-    watcher: Watcher<PathBuf, ()>,
+    watcher: Watcher<PathBuf, Result<(), DeviceError>>,
 }
 impl Input {
     pub fn new(logical_tx: PhysicalTxMaker) -> Self {
@@ -47,7 +36,10 @@ impl Input {
                         Ok(m) => {
                             let ThreadExit { key, status } = m;
                             match status {
-                                ThreadStatus::Returned(_) => (),
+                                ThreadStatus::Returned(v) => match v {
+                                    Ok(_) => todo!(),
+                                    Err(_) => todo!(),
+                                },
                                 ThreadStatus::Panicked(e) => {
                                     eprintln!("thread watching device `{key:?}` panicked: {e}")
                                 },
@@ -69,51 +61,10 @@ impl Input {
                 continue;
             }
             let handle =
-                device_listen(dev, path.clone(), self.physical_tx_maker.generate_tx());
+                DeviceListen::new(dev, path.clone(), self.physical_tx_maker.generate_tx()).listen();
             self.watcher.watch_thread(path, handle);
         }
     }
-}
-
-
-/// Creates resync request for the logical device.
-fn resync(device: &Device) {
-    todo!()
-}
-/// Start listening to a specific device defined by its path.
-// TODO: Add return type to join handle?
-fn device_listen(mut dev: Device, path: PathBuf, tx: PhysicalTx) -> JoinHandle<()> {
-    std::thread::spawn(move || {
-        let mut successive_err = 0;
-        let retry_delay = std::time::Duration::from_millis(100);
-        let mut requests: Vec<FromPhysicalDevice> = Vec::new();
-        loop {
-            match dev.fetch_events() {
-                Ok(events) => {
-                    // TODO: resync device if there was an error (err>0).
-                    // find a way to please borrow checker.
-                    successive_err = 0;
-                    for event in events {
-                        handle_event(event, &mut requests);
-                    }
-                }
-                Err(e) => {
-                    requests.clear();
-                    if e.kind() == std::io::ErrorKind::Interrupted {
-                        continue;
-                    }
-                    if e.raw_os_error() == Some(libc::ENODEV) || !path.exists() {
-                        return;
-                    }
-                    successive_err += 1;
-                    if successive_err >= MAX_SUCCESSIVE_ERRORS {
-                        return;
-                    }
-                    std::thread::sleep(retry_delay);
-                }
-            }
-        }
-    })
 }
 /// Whether the device is suppoorted by the daemon.
 fn is_supported(dev: &Device) -> bool {
@@ -139,27 +90,4 @@ fn is_supported(dev: &Device) -> bool {
         return false;
     }
     true
-}
-fn handle_event(event: InputEvent, requests: &mut Vec<FromPhysicalDevice>) {
-    match event.destructure() {
-        EventSummary::Synchronization(sync_event, sync_code, _) => {
-            match SynchronizationCode(event.code()) {
-                SynchronizationCode::SYN_REPORT => {
-                    // Send accumulated requests to the logical device.
-                    todo!()
-                }
-                SynchronizationCode::SYN_DROPPED => {
-                    // Drop current accumulated requests and then resync the
-                    // entire device.
-                    // Also call this clearing if error occurs.
-                    todo!()
-                }
-                _ => return,
-            }
-        }
-        EventSummary::Key(key_event, key_code, _) => todo!(),
-        EventSummary::RelativeAxis(rel_axis_event, rel_axis_code, _) => todo!(),
-        EventSummary::AbsoluteAxis(abs_axis_event, abs_axis_code, _) => todo!(),
-        _ => return,
-    }
 }

@@ -19,12 +19,10 @@ impl DropGuard {
     }
 }
 impl Drop for DropGuard {
-    /// Make sure the router knows the logical device closed so that it can
+    /// Make sure the logical device knows the device closed so that it can
     /// drop values it stored about it.
     fn drop(&mut self) {
-        self.device_tx
-            .send(FromProcess::Close)
-            .expect("the logical device should not be closed");
+        let _ = self.device_tx.send(FromProcess::Close);
     }
 }
 
@@ -46,7 +44,7 @@ impl ClientListener {
     /// Launch the connection, which will start listening to the socket.
     pub fn launch(mut self) -> JoinHandle<Result<(), ClientListenerError>> {
         std::thread::spawn(move || {
-            let mut _guard = DropGuard::new(self.device_tx.clone());
+            let _guard = DropGuard::new(self.device_tx.clone());
             loop {
                 match self.connection_rx.recv() {
                     Ok(m) => {
