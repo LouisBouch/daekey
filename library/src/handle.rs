@@ -5,7 +5,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::ipc::{message::FromProcess, socket_connection::ConnectionTx};
+use crate::{format_error::{ErrorContext, print_err}, ipc::{message::FromProcess, socket_connection::ConnectionTx}};
 
 /// Used as an API for the app's functionalities.
 pub struct Handle {
@@ -21,8 +21,8 @@ impl Handle {
     /// Closes the connection with the daemon.
     pub fn exit(&mut self) {
         if let Err(e) = self.daemon_connection.send(FromProcess::Close) {
-            eprintln!("error: failed to request disconnection");
-            eprintln!("  cause: {e}");
+            let ctx = "failed to request disconnection";
+            print_err(&ErrorContext::new(ctx.into(), &e));
         }
     }
     //TODO: Implement api functions

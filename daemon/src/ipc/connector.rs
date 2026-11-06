@@ -13,6 +13,8 @@ use std::time::Duration;
 use crossbeam_channel::Sender;
 use nix::unistd;
 
+use library::format_error::{ErrorContext, print_err};
+
 /// Required permissions for the socket's parent.
 const SOCKET_PARENT_PERMISSIONS: u32 = 0o750;
 /// Required group id and user id for the socket's parent.
@@ -175,7 +177,8 @@ pub fn listen_socket_server(
                     }
                     Err(e) => {
                         subsequent_stream_err += 1;
-                        eprintln!("Failed to get new connection: {e}");
+                        let ctx = "failed to get new connection";
+                        print_err(&ErrorContext::new(ctx.into(), &e));
                         if subsequent_stream_err >= 100 {
                             panic!("too many subsequent stream errors");
                         }

@@ -3,12 +3,11 @@
 use std::{collections::HashSet, path::PathBuf, thread::JoinHandle};
 
 use crate::{
-    ErrorContext,
     device_interface::input::device_listen::{DeviceError, DeviceListen},
     logical_device::router::PhysicalTxMaker,
-    print_err,
     watcher::{ThreadExit, ThreadStatus, Watcher},
 };
+use library::format_error::{ErrorContext, print_err};
 
 use evdev::{BusType, Device, EventType};
 mod device_listen;
@@ -51,7 +50,8 @@ impl Input {
                                 },
                             },
                             ThreadStatus::Panicked(e) => {
-                                eprintln!("the thread watching device `{key:?}` panicked: {e}")
+                                eprintln!("error: the thread watching device `{key:?}` panicked");
+                                eprintln!("  cause: {e}");
                             },
                         }
                         self.devices.remove(&key);

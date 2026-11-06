@@ -12,7 +12,7 @@ use evdev::KeyEvent;
 use rayon::ThreadPoolBuildError;
 
 use crate::{
-    binding::{Action, Binding}, connection::{ConnectionError, socket_from_daemon}, handle::Handle, ipc::{
+    binding::{Action, Binding}, connection::{ConnectionError, socket_from_daemon}, format_error::{ErrorContext, print_err}, handle::Handle, ipc::{
         message::FromDaemon,
         socket_connection::{self, ConnectionRx},
     }, keys::modded_key::ModdedKey
@@ -136,8 +136,8 @@ impl Client {
                     if e == postcard::Error::DeserializeUnexpectedEnd {
                         return Err(RunError::SocketConnection);
                     }
-                    eprintln!("error: failed to receive message from the daemon, skipping");
-                    eprintln!("  cause: {e}");
+                    let ctx = "failed to receive message from the daemon, skipping";
+                    print_err(&ErrorContext::new(ctx.into(), &e));
                 }
             }
         }

@@ -7,6 +7,7 @@ use crate::{client_gateway::ClientListenerError, logical_device::router::Simulat
 
 use library::ipc::message::FromProcess;
 use library::ipc::socket_connection::ConnectionRx;
+use library::format_error::{print_err, ErrorContext};
 
 /// Notifies router when dropped.
 struct DropGuard {
@@ -57,10 +58,9 @@ impl ClientListener {
                         if e == postcard::Error::DeserializeUnexpectedEnd {
                             return Err(ClientListenerError::SocketConnection);
                         }
-                        eprintln!(
-                            "error: failed to deserialize message from the connected process, skipping"
-                        );
-                        eprintln!("  cause: {e}");
+                        let ctx =
+                            "failed to deserialize message from the connected process, skipping";
+                        print_err(&ErrorContext::new(ctx.into(), &e));
                     }
                 }
             }

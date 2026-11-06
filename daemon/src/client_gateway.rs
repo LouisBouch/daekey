@@ -3,6 +3,7 @@
 
 use crossbeam_channel::{Receiver, Sender};
 use library::ipc::{message, socket_connection::ConnectionRx, socket_connection::ConnectionTx};
+use library::format_error::{print_err, ErrorContext};
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Display;
@@ -11,7 +12,6 @@ use std::thread::{self, JoinHandle};
 
 use crate::ipc::client_listener::ClientListener;
 use crate::logical_device::router::{PhysicalTx, SimulatedId, SimulatedTx, SimulatedTxMaker};
-use crate::print_err;
 use crate::watcher::{ThreadExit, ThreadStatus, Watcher};
 
 /// The reason the [`ClientListener`] terminated its loop.

@@ -1,8 +1,5 @@
-use std::{
-    error::Error,
-    fmt::{Display, write},
-    process::ExitCode,
-};
+use library::format_error::print_err;
+use std::{error::Error, fmt::Display, process::ExitCode};
 
 mod client_gateway;
 pub mod compositor_interface;
@@ -66,35 +63,6 @@ fn run() -> Result<(), Box<dyn Error + 'static>> {
                 return Err(Box::new(RunError::Arguments) as Box<dyn Error>);
             }
         }
-    }
-}
-#[derive(Debug)]
-pub struct ErrorContext<'a> {
-    context: String,
-    source: &'a (dyn Error + 'static),
-}
-impl<'a> ErrorContext<'a> {
-    pub fn new(context: String, source: &'a (dyn Error + 'static)) -> Self {
-        Self { context, source }
-    }
-}
-impl<'a> Display for ErrorContext<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.context)
-    }
-}
-impl<'a> Error for ErrorContext<'a> {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        Some(self.source)
-    }
-}
-/// Handle the formatting and printing of an error.
-fn print_err(err: &dyn Error) {
-    eprintln!("error: {err}");
-    let mut source = err.source();
-    while let Some(s) = source {
-        eprintln!("  caused by: {s}");
-        source = s.source();
     }
 }
 
