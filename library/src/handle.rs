@@ -5,10 +5,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::ipc::{
-    message::FromProcess,
-    socket_connection::{ConnectionTx},
-};
+use crate::ipc::{message::FromProcess, socket_connection::ConnectionTx};
 
 /// Used as an API for the app's functionalities.
 pub struct Handle {

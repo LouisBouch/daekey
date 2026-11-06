@@ -1,6 +1,6 @@
 //! Logic to listen to a physical device.
 
-use std::{collections::HashSet, io, path::PathBuf, thread::JoinHandle};
+use std::{collections::HashSet, error::Error, fmt::Display, io, path::PathBuf, thread::JoinHandle};
 
 use evdev::{Device, EventSummary, InputEvent, SynchronizationCode};
 use nix::libc;
@@ -30,13 +30,41 @@ impl Drop for DropGuard {
 }
 
 /// Error while running the device listener.
+#[derive(Debug)]
 pub enum DeviceError {
     /// The receiver for the logical device is closed.
     LogicalRxClosed,
     /// Too many errors while trying to fetch events from the device.
     FetchEvents { last_err: io::Error },
-    /// Failed to get the key states of hte device.
-    KeyState { last_err: io::Error },
+    /// Failed to get the key states of the device.
+    KeyState { err: io::Error },
+}
+impl Display for DeviceError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DeviceError::LogicalRxClosed => {
+                write!(f, "logical device receiver closed")
+            }
+            DeviceError::FetchEvents { last_err } => {
+                write!(
+                    f,
+                    "too many successive errors when fetchign device events. last error: {last_err}"
+                )
+            }
+            DeviceError::KeyState { err: _ } => {
+                write!(f, "failed to fetch the key states of the device")
+            }
+        }
+    }
+}
+impl Error for DeviceError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            DeviceError::LogicalRxClosed => None,
+            DeviceError::FetchEvents { last_err: _ } => None,
+            DeviceError::KeyState { err } => Some(err),
+        }
+    }
 }
 
 /// A struct containing everything requiring to listen to a physical device.
@@ -112,7 +140,7 @@ impl DeviceListen {
                 self.successive_err = 0;
                 Ok(())
             }
-            Err(e) => Err(DeviceError::KeyState { last_err: e }),
+            Err(e) => Err(DeviceError::KeyState { err: e }),
         }
     }
     /// Handles an event from the connected device.

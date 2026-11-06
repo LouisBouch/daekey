@@ -129,7 +129,7 @@ impl Gateway {
                     recv(self.connector_rx) -> c_mes => {
                         match c_mes {
                             Ok(m) => if let Err(e) = self.launch_new_client(m) {
-                                print_err(Box::new(e));
+                                print_err(&e);
                             },
                             Err(e) => panic!("unexpected connector shutdown, closing daemon: {e}"),
                         }

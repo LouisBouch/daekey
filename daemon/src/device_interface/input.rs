@@ -3,7 +3,11 @@
 use std::{collections::HashSet, path::PathBuf, thread::JoinHandle};
 
 use crate::{
-    device_interface::input::device_listen::{DeviceError, DeviceListen}, logical_device::router::PhysicalTxMaker, watcher::{ThreadExit, ThreadStatus, Watcher}
+    ErrorContext,
+    device_interface::input::device_listen::{DeviceError, DeviceListen},
+    logical_device::router::PhysicalTxMaker,
+    print_err,
+    watcher::{ThreadExit, ThreadStatus, Watcher},
 };
 
 use evdev::{BusType, Device, EventType};
@@ -31,25 +35,30 @@ impl Input {
     pub fn launch(mut self) -> JoinHandle<()> {
         std::thread::spawn(move || {
             crossbeam_channel::select_biased! {
-                recv(self.watcher.rx()) -> c_mes => {
-                    match c_mes {
-                        Ok(m) => {
-                            let ThreadExit { key, status } = m;
-                            match status {
-                                ThreadStatus::Returned(v) => match v {
-                                    Ok(_) => todo!(),
-                                    Err(_) => todo!(),
+                recv(self.watcher.rx()) -> c_mes => match c_mes {
+                    Ok(ThreadExit { key, status }) => {
+                        match status {
+                            ThreadStatus::Returned(v) => match v {
+                                Ok(_) => (),
+                                Err(e) => {
+                                    let ctx= format!("device {key:?} closed");
+                                    print_err(&ErrorContext::new(ctx, &e));
+                                    if let DeviceError::LogicalRxClosed = e {
+                                        panic!(
+                                            "unexpected logical device receiver shutdown, closing input: {e}"
+                                        );
+                                    }
                                 },
-                                ThreadStatus::Panicked(e) => {
-                                    eprintln!("thread watching device `{key:?}` panicked: {e}")
-                                },
-                            }
-                            self.devices.remove(&key);
-                            self.update_listened();
-                        },
-                        Err(e) => panic!("unexpected watcher shutdown, closing input: {e}"),
-                    }
-                },
+                            },
+                            ThreadStatus::Panicked(e) => {
+                                eprintln!("the thread watching device `{key:?}` panicked: {e}")
+                            },
+                        }
+                        self.devices.remove(&key);
+                        self.update_listened();
+                    },
+                    Err(e) => panic!("unexpected watcher shutdown, closing input: {e}"),
+                }
             }
         })
     }

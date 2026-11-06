@@ -1,13 +1,17 @@
-use std::{error::Error, fmt::Display, process::ExitCode};
+use std::{
+    error::Error,
+    fmt::{Display, write},
+    process::ExitCode,
+};
 
+mod client_gateway;
 pub mod compositor_interface;
-pub mod ipc;
-pub mod watcher;
-pub mod logical_device;
 mod core;
 mod device_interface;
 mod fd_transfer;
-mod client_gateway;
+pub mod ipc;
+pub mod logical_device;
+pub mod watcher;
 
 /// Errors that can occur when launching the daemon.
 #[derive(Debug)]
@@ -38,7 +42,7 @@ fn main() -> ExitCode {
     // Obtained by running cargo run --bin daemon -- value
     let res = run();
     if let Err(e) = res {
-        print_err(e);
+        print_err(&*e);
         return ExitCode::FAILURE;
     };
     ExitCode::SUCCESS
@@ -64,12 +68,32 @@ fn run() -> Result<(), Box<dyn Error + 'static>> {
         }
     }
 }
+#[derive(Debug)]
+pub struct ErrorContext<'a> {
+    context: String,
+    source: &'a (dyn Error + 'static),
+}
+impl<'a> ErrorContext<'a> {
+    pub fn new(context: String, source: &'a (dyn Error + 'static)) -> Self {
+        Self { context, source }
+    }
+}
+impl<'a> Display for ErrorContext<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.context)
+    }
+}
+impl<'a> Error for ErrorContext<'a> {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        Some(self.source)
+    }
+}
 /// Handle the formatting and printing of an error.
-fn print_err(err: Box<dyn Error + 'static>) {
+fn print_err(err: &dyn Error) {
     eprintln!("error: {err}");
     let mut source = err.source();
     while let Some(s) = source {
-        eprintln!("  caused by: {err}");
+        eprintln!("  caused by: {s}");
         source = s.source();
     }
 }
