@@ -7,7 +7,7 @@ use nix::libc;
 
 use crate::logical_device::router::{FromPhysicalDevice, PhysicalTx};
 
-use library::ipc::message::Request;
+use library::{ipc::message::Request, keys::event::KeyState};
 
 const MAX_SUCCESSIVE_ERRORS: u32 = 20;
 
@@ -120,21 +120,46 @@ impl DeviceListen {
     /// Can only fail with [`DeviceError::LogicalRxClosed`].
     fn handle_event(&mut self, event: InputEvent) -> Result<(), DeviceError> {
         match event.destructure() {
-            EventSummary::Synchronization(sync_event, sync_code, _) => {
-                match SynchronizationCode(event.code()) {
-                    SynchronizationCode::SYN_REPORT => {
-                        // Send accumulated requests to the logical device.
-                        todo!()
-                    }
-                    SynchronizationCode::SYN_DROPPED => {
-                        self.resync()
-                    }
-                    _ => Ok(()),
+            EventSummary::Synchronization(_, sync_code, _) => match sync_code {
+                SynchronizationCode::SYN_REPORT => {
+                    // Send accumulated requests to the logical device.
+                    self.tx
+                        .send(FromPhysicalDevice::Request(std::mem::take(
+                            &mut self.requests,
+                        )))
+                        .map_err(|_| DeviceError::LogicalRxClosed)
                 }
+                SynchronizationCode::SYN_DROPPED => self.resync(),
+                _ => Ok(()),
+            },
+            EventSummary::Key(_, key_code, value) => {
+                let key_state = match value {
+                    0 => KeyState::Released,
+                    1 => KeyState::Pressed,
+                    // Don't treat repeats as a valid state. The compositor handles held keys
+                    // itself.
+                    _ => return Ok(()),
+                };
+                self.requests.push(Request::SendKey {
+                    key_code,
+                    key_state,
+                });
+                Ok(())
             }
-            EventSummary::Key(key_event, key_code, _) => todo!(),
-            EventSummary::RelativeAxis(rel_axis_event, rel_axis_code, _) => todo!(),
-            EventSummary::AbsoluteAxis(abs_axis_event, abs_axis_code, _) => todo!(),
+            EventSummary::RelativeAxis(_, rel_axis_code, value) => {
+                self.requests.push(Request::SendRelativeMotion {
+                    relative_axis: rel_axis_code,
+                    value,
+                });
+                Ok(())
+            }
+            EventSummary::AbsoluteAxis(_, absolute_axis_code, value) => {
+                self.requests.push(Request::SendAbsoluteMotion {
+                    absolute_axis: absolute_axis_code,
+                    value,
+                });
+                Ok(())
+            }
             _ => Ok(()),
         }
     }

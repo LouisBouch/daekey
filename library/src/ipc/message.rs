@@ -30,8 +30,6 @@ pub enum Request {
         absolute_axis: AbsoluteAxisCode,
         value: i32,
     },
-    /// Append a SYN_REPORT to every virtual device with pending requests.
-    Sync,
 }
 /// A message to the logical device from a simulated one.
 #[derive(Serialize, Deserialize, Clone, Debug)]
