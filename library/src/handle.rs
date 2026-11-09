@@ -8,13 +8,13 @@ use std::{
 use crate::{format_error::{ErrorContext, print_err}, ipc::{message::FromProcess, socket_connection::ConnectionTx}};
 
 /// Used as an API for the app's functionalities.
-pub struct Handle {
+pub struct DaemonHandle {
     /// Outgoing connection to the daemon.
     daemon_connection: ConnectionTx<FromProcess>,
 }
-impl Handle {
+impl DaemonHandle {
     pub(crate) fn new(daemon_connection: ConnectionTx<FromProcess>) -> Self {
-        Handle {
+        DaemonHandle {
             daemon_connection: daemon_connection,
         }
     }
@@ -27,15 +27,15 @@ impl Handle {
     }
     //TODO: Implement api functions
 }
-/// Wraps a [`Handle`] and add dropping logic.
+/// Wraps a [`DaemonHandle`] and add dropping logic.
 pub(crate) struct HandleWrapper {
-    /// The wrapped [`Handle`].
-    handle: Option<Handle>,
-    /// The list to return the [`Handle`] to once the wrapper is dropped.
-    return_pile: Arc<Mutex<Vec<Handle>>>,
+    /// The wrapped [`DaemonHandle`].
+    handle: Option<DaemonHandle>,
+    /// The list to return the [`DaemonHandle`] to once the wrapper is dropped.
+    return_pile: Arc<Mutex<Vec<DaemonHandle>>>,
 }
 impl HandleWrapper {
-    pub fn new(handle: Handle, return_pile: Arc<Mutex<Vec<Handle>>>) -> Self {
+    pub fn new(handle: DaemonHandle, return_pile: Arc<Mutex<Vec<DaemonHandle>>>) -> Self {
         HandleWrapper {
             handle: Some(handle),
             return_pile,
@@ -43,7 +43,7 @@ impl HandleWrapper {
     }
 }
 impl Deref for HandleWrapper {
-    type Target = Handle;
+    type Target = DaemonHandle;
 
     fn deref(&self) -> &Self::Target {
         self.handle

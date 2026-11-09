@@ -1,8 +1,8 @@
 //! Defines the content of a binding.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
-use crate::handle::Handle;
+use crate::handle::DaemonHandle;
 
 /// What to do with the event if it is bound.
 #[derive(PartialEq, Eq, Clone, Copy)]
@@ -17,12 +17,20 @@ impl Default for BindingPolicy {
         Self::Swallow
     }
 }
-
+/// The closure associated with the action.
+pub struct ClosureAction {
+    /// The closure that will run.a TODO: NEXT Figure out the shape of it. (list of handles? one handle
+    /// and share it? somethig else?)
+    closure:Arc<dyn Fn(DaemonHandle) + Send + Sync>,
+    /// Parked threads to be used by closures.
+    thread_pool: rayon::ThreadPool,
+    /// List of handles to be handed to closures.
+    handles: Arc<Mutex<Vec<DaemonHandle>>>,
+}
 /// An action taken by the [`Client`].
-#[derive(Clone)]
 pub enum Action {
     /// Run a closure.
-    Closure(Arc<dyn Fn(Handle) + Send + Sync>),
+    Closure(ClosureAction),
     /// Toggles the bindings on or off.
     ToggleBindings,
     /// Disconnects the process from the daemon.
@@ -48,7 +56,7 @@ struct Edge {
     active_threads: u32,
     /// Max number of threads to run concurrent [`Action::Closure`]s.
     max_threads: u32,
-    /// Whether the key remains bounded after the client paused bindings.
+    /// Whether the key remains bound after the client paused bindings.
     ///
     /// Defaults to `False`
     active_when_paused: bool,
@@ -123,19 +131,3 @@ impl Binding {
         }
     }
 }
-// /// Info the daemon will require about the binding.
-// #[derive(PartialEq, Eq, Clone, Copy)]
-// pub struct BindingInfo {
-//     /// The edges that have an associated [`Action`].
-//     active_edges: ActiveEdges,
-//     /// Whether the key should be forwarded or swallowed after triggering the binding.
-//     policy: BindingPolicy,
-// }
-// impl BindingInfo {
-//     pub fn active_edges(&self) -> ActiveEdges {
-//         self.active_edges
-//     }
-//     pub fn binding_policy(&self) -> BindingPolicy {
-//         self.policy
-//     }
-// }

@@ -8,14 +8,18 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use evdev::KeyEvent;
 use rayon::ThreadPoolBuildError;
 
 use crate::{
-    binding::{Action, Binding}, connection::{ConnectionError, socket_from_daemon}, format_error::{ErrorContext, print_err}, handle::Handle, ipc::{
+    binding::Binding,
+    connection::{ConnectionError, socket_from_daemon},
+    format_error::{ErrorContext, print_err},
+    handle::DaemonHandle,
+    ipc::{
         message::FromDaemon,
         socket_connection::{self, ConnectionRx},
-    }, keys::modded_key::ModdedKey
+    },
+    keys::modded_key::ModdedKey,
 };
 
 #[derive(Debug)]
@@ -79,11 +83,11 @@ impl Error for RunError {
 
 /// An instance of a connection to the daemon.
 pub struct Client {
-    // TODO: VERY IMPORTANT NEXT: GIVE A THREAD POOL PER MODDEDKEY+STATE INTEAD OF FOR THE ENTIRE MAP SCRIPT.
+    // TODO: NEXT Get rid of thread pool and handles, the ClosureAction s will hold them.
     /// Parked threads to be used by closures.
     thread_pool: rayon::ThreadPool,
     /// List of handles to be handed to closures.
-    handles: Arc<Mutex<Vec<Handle>>>,
+    handles: Arc<Mutex<Vec<DaemonHandle>>>,
     /// The connection that will receive messages from the daemon.
     daemon_rx: ConnectionRx<FromDaemon>,
     /// Whether the bindings' actions will be executed (The bindings that allow for unpausing are not paused)
@@ -114,7 +118,7 @@ impl Client {
             handles
                 .lock()
                 .expect("previous lock should not have panicked")
-                .push(Handle::new(daemon_tx.clone()));
+                .push(DaemonHandle::new(daemon_tx.clone()));
         }
         Ok(Self {
             thread_pool,
@@ -128,16 +132,17 @@ impl Client {
     pub fn run(&mut self) -> Result<(), RunError> {
         loop {
             match self.daemon_rx.recv() {
+                    // TODO: NEXT add message types and handle error from receiver. Improve [`RunError`].
                 Ok(m) => match m {
-                    // TODO: NEXT add message types.
                 },
                 Err(e) => {
                     // For a regular socket, DeserializeUnexpectedEnd represents disconnect.
-                    if e == postcard::Error::DeserializeUnexpectedEnd {
-                        return Err(RunError::SocketConnection);
-                    }
-                    let ctx = "failed to receive message from the daemon, skipping";
-                    print_err(&ErrorContext::new(ctx.into(), &e));
+
+                    // if e == postcard::Error::DeserializeUnexpectedEnd {
+                    //     return Err(RunError::SocketConnection);
+                    // }
+                    // let ctx = "failed to receive message from the daemon, skipping";
+                    // print_err(&ErrorContext::new(ctx.into(), &e));
                 }
             }
         }
