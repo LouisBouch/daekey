@@ -3,7 +3,10 @@
 
 use crossbeam_channel::Receiver;
 use library::format_error::print_err;
-use library::ipc::{message, socket_connection::ConnectionRx, socket_connection::ConnectionTx};
+use library::ipc::{
+    channel::{rx::Rx, tx::Tx},
+    message,
+};
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Display;
@@ -81,8 +84,8 @@ pub enum FromLogicalDevice {}
 
 /// Holds necesary maps to properly pass messages along.
 pub struct Gateway {
-    /// Map listing the [`ConnectionTx`] for each active session.
-    client_map: HashMap<SimulatedId, ConnectionTx<message::FromDaemon>>,
+    /// Map listing the [`Tx`] for each active session.
+    client_map: HashMap<SimulatedId, Tx<message::FromDaemon>>,
     /// Watches threads and reports their death.
     watcher: Watcher<SimulatedId, Result<(), ClientListenerError>>,
 
@@ -161,12 +164,12 @@ impl Gateway {
         let id = self.simulated_tx_maker.next_id();
         let tx = self.simulated_tx_maker.generate_tx();
         let handle = ClientListener::new(
-            ConnectionRx::new(stream.try_clone().map_err(ClientLaunchError::SocketClone)?),
+            Rx::new(stream.try_clone().map_err(ClientLaunchError::SocketClone)?),
             tx,
         )
         .launch();
 
-        let client_tx = ConnectionTx::<message::FromDaemon>::new(stream);
+        let client_tx = Tx::<message::FromDaemon>::new(stream);
         self.client_map.insert(id, client_tx);
 
         self.watcher.watch_thread(id, handle);

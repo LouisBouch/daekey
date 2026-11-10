@@ -16,8 +16,8 @@ use crate::{
     format_error::{ErrorContext, print_err},
     handle::DaemonHandle,
     ipc::{
+        channel::{rx::Rx, tx::Tx},
         message::FromDaemon,
-        socket_connection::{self, ConnectionRx},
     },
     keys::modded_key::ModdedKey,
 };
@@ -89,7 +89,7 @@ pub struct Client {
     /// List of handles to be handed to closures.
     handles: Arc<Mutex<Vec<DaemonHandle>>>,
     /// The connection that will receive messages from the daemon.
-    daemon_rx: ConnectionRx<FromDaemon>,
+    daemon_rx: Rx<FromDaemon>,
     /// Whether the bindings' actions will be executed (The bindings that allow for unpausing are not paused)
     bindings_active: bool,
     /// The list of [`Binding`] and its associated [`ModdedKey`].
@@ -108,12 +108,12 @@ impl Client {
             .build()
             .map_err(InstantiationError::ThreadPool)?;
         let handles = Arc::new(Mutex::new(Vec::new()));
-        let daemon_rx = socket_connection::ConnectionRx::new(
+        let daemon_rx = Rx::new(
             daemon_socket
                 .try_clone()
                 .map_err(InstantiationError::SocketCloning)?,
         );
-        let daemon_tx = socket_connection::ConnectionTx::new(daemon_socket);
+        let daemon_tx = Tx::new(daemon_socket);
         for _ in 0..max_threads {
             handles
                 .lock()
@@ -132,8 +132,10 @@ impl Client {
     pub fn run(&mut self) -> Result<(), RunError> {
         loop {
             match self.daemon_rx.recv() {
-                    // TODO: NEXT add message types and handle error from receiver. Improve [`RunError`].
+                // TODO: NEXT add message types and handle error from receiver. Improve [`RunError`].
                 Ok(m) => match m {
+                    Ok(_) => todo!(),
+                    Err(_) => todo!(),
                 },
                 Err(e) => {
                     // For a regular socket, DeserializeUnexpectedEnd represents disconnect.

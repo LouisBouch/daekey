@@ -5,9 +5,9 @@ use std::thread::JoinHandle;
 
 use crate::{client_gateway::ClientListenerError, logical_device::router::SimulatedTx};
 
+use library::format_error::{ErrorContext, print_err};
+use library::ipc::channel::rx::Rx;
 use library::ipc::message::FromProcess;
-use library::ipc::socket_connection::ConnectionRx;
-use library::format_error::{print_err, ErrorContext};
 
 /// Notifies router when dropped.
 struct DropGuard {
@@ -29,14 +29,14 @@ impl Drop for DropGuard {
 
 /// Info and logic about the receiving side of a connection with a process.
 pub struct ClientListener {
-    /// Receives messages from the client through a [`ConnectionRx`].
-    connection_rx: ConnectionRx<FromProcess>,
+    /// Receives messages from the client through a [`Rx`].
+    connection_rx: Rx<FromProcess>,
     /// Channel to transmit to the logical device.
     device_tx: SimulatedTx,
 }
 
 impl ClientListener {
-    pub fn new(connection_rx: ConnectionRx<FromProcess>, device_tx: SimulatedTx) -> Self {
+    pub fn new(connection_rx: Rx<FromProcess>, device_tx: SimulatedTx) -> Self {
         Self {
             connection_rx,
             device_tx,
@@ -48,19 +48,20 @@ impl ClientListener {
             let _guard = DropGuard::new(self.device_tx.clone());
             loop {
                 match self.connection_rx.recv() {
+                    // TODO: NEXT Use new receiver return values.
                     Ok(m) => {
-                        if self.handle_message(m).is_break() {
-                            return Ok(());
-                        }
+                        // if self.handle_message(m).is_break() {
+                        //     return Ok(());
+                        // }
                     }
                     Err(e) => {
                         // For a regular socket, DeserializeUnexpectedEnd represents disconnect.
-                        if e == postcard::Error::DeserializeUnexpectedEnd {
-                            return Err(ClientListenerError::SocketConnection);
-                        }
-                        let ctx =
-                            "failed to deserialize message from the connected process, skipping";
-                        print_err(&ErrorContext::new(ctx.into(), &e));
+                        // if e == postcard::Error::DeserializeUnexpectedEnd {
+                        //     return Err(ClientListenerError::SocketConnection);
+                        // }
+                        // let ctx =
+                        //     "failed to deserialize message from the connected process, skipping";
+                        // print_err(&ErrorContext::new(ctx.into(), &e));
                     }
                 }
             }
