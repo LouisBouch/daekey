@@ -18,30 +18,21 @@ features to come).
 
 # WIP
 
-Currently, only a single instance can run at a time. Time fix this, the
-following code changes will be made:
-
-- [ ] Unbind the daemon from the core process. Currently, they must run
-  together, so allow them to just run independently. Run the daemon with
-  input,uinput and daekey groups using a service.
-- [ ] Each connection to the daemon should be done through a single socket
-  instead of the many there currently are. This socket will have daekey:dakey
-  permissions. To access this socket from the connecting process, it can simply
-  re-exec the daemon with a speciall flag that will fetch the socket and return
-  it with SCM_RIGHTS. (ensure that no 2 daemon processes can run at the same time).
-- [ ] The daemon's input manager will listen to input devices AND to a single
-  byte fd that will notify it when it received a message from a user's script.
-  So the user sends a message through the socket, the message manager sends
-  message through crossbeam to the input manager AND activates the fd byte so
-  that the input manager can act on it, as it will only poll fds.
+- [ ] Custom ThreadPool struct that can hold a generic type.
+- [ ] An executor struct that holds a threadpool and a closure. Uses the threadpool to run the closure on multiple threads at the same time.
+- [ ] Split project into an additonal common library.
+  * daemon imports common library
+  * client_library imports common library and re-exports some necessary items for the client.
+  * Client only imports client_library
+- [ ] An executor struct that holds a threadpool and a closure. Uses the threadpool to run the closure on multiple threads at the same time.
 - [ ] Make the daemon listen for compositor changes (like the screen layout) and
-  push them to the connected users afterwards. Also give the scripts the
-  compositor state at the start.
+      push them to the connected users afterwards. Also give the scripts the
+      compositor state at the start.
 
 Once this is done, additional features will include:
 
 - [ ] A macro maker that fetches initiale absolute cursor position on a key
-  press and then record everything that is done.
+      press and then record everything that is done.
 - [ ] A API call that allows you to get the pixel color under the cursor.
 - [ ] A API call that allows you to find the position of a pixel with a certain
-  color.
+      color.
