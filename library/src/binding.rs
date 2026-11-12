@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use crate::handle::DaemonHandle;
+use crate::daemon_handle::DaemonHandle;
 
 /// What to do with the event if it is bound.
 #[derive(PartialEq, Eq, Clone, Copy)]
@@ -17,11 +17,14 @@ impl Default for BindingPolicy {
         Self::Swallow
     }
 }
+// TODO: Make custom threadpool which contains the handle. this will make it self contained.
+// Maybe use generic type instead of baked in DaemonHandle. This then becomes some kind of executor.
+// Give same generic to threadpool.
 /// The closure associated with the action.
 pub struct ClosureAction {
     /// The closure that will run.a TODO: NEXT Figure out the shape of it. (list of handles? one handle
     /// and share it? somethig else?)
-    closure:Arc<dyn Fn(DaemonHandle) + Send + Sync>,
+    closure: Arc<dyn Fn(DaemonHandle) + Send + Sync>,
     /// Parked threads to be used by closures.
     thread_pool: rayon::ThreadPool,
     /// List of handles to be handed to closures.
@@ -49,68 +52,50 @@ pub enum ActiveEdges {
     /// Action on neither.
     None,
 }
-struct Edge {
-    /// [`Action`] of the [`Edge`].
-    action: Action,
-    /// Number of threads currently running an [`Action::Closure`].
-    active_threads: u32,
-    /// Max number of threads to run concurrent [`Action::Closure`]s.
-    max_threads: u32,
+/// The keybind's content per edge.
+pub struct Edges {
+    /// State associated with the press.
+    press: Option<Action>,
+    /// State associated with the release.
+    release: Option<Action>,
+    /// Defaults to [`BindingPolicy::Swallow`].
+    policy: BindingPolicy,
     /// Whether the key remains bound after the client paused bindings.
     ///
     /// Defaults to `False`
     active_when_paused: bool,
 }
-/// The keybind's content.
-pub struct Binding {
-    /// State associated with the press.
-    press: Option<Edge>,
-    /// State associated with the release.
-    release: Option<Edge>,
-    /// Defaults to [`BindingPolicy::Swallow`].
-    policy: BindingPolicy,
-}
-impl Binding {
-    /// Creates a new press binding for the press edge.
-    /// This binding will ignore the pause state of the client.
-    pub fn set_press_active_on_pause(mut self, action: Action, max_threads: u32) -> Self {
-        self.press = Some(Edge {
-            action,
-            max_threads,
-            active_when_paused: true,
-            active_threads: 0,
-        });
+impl Edges {
+    // /// Creates a new press binding for the press edge.
+    // /// This binding will ignore the pause state of the client.
+    // pub fn set_press_active_on_pause(mut self, action: Action, max_threads: u32) -> Self {
+    //     self.press = Some(Binding {
+    //         action,
+    //         max_threads,
+    //         active_when_paused: true,
+    //         active_threads: 0,
+    //     });
+    //     self
+    // }
+    // /// Creates a new press binding for the release edge.
+    // /// This binding will ignore the pause state of the client.
+    // pub fn set_release_active_on_pause(mut self, action: Action, max_threads: u32) -> Self {
+    //     self.release = Some(Binding {
+    //         action,
+    //         max_threads,
+    //         active_when_paused: true,
+    //         active_threads: 0,
+    //     });
+    //     self
+    // }
+    // Creates a new press binding for the press edge.
+    pub fn set_on_press(mut self, action: Action) -> Self {
+        self.press = Some(action);
         self
     }
     /// Creates a new press binding for the release edge.
-    /// This binding will ignore the pause state of the client.
-    pub fn set_release_active_on_pause(mut self, action: Action, max_threads: u32) -> Self {
-        self.release = Some(Edge {
-            action,
-            max_threads,
-            active_when_paused: true,
-            active_threads: 0,
-        });
-        self
-    }
-    /// Creates a new press binding for the press edge.
-    pub fn set_on_press(mut self, action: Action, max_threads: u32) -> Self {
-        self.press = Some(Edge {
-            action,
-            max_threads,
-            active_when_paused: false,
-            active_threads: 0,
-        });
-        self
-    }
-    /// Creates a new press binding for the release edge.
-    pub fn set_on_release(mut self, action: Action, max_threads: u32) -> Self {
-        self.release = Some(Edge {
-            action,
-            max_threads,
-            active_when_paused: false,
-            active_threads: 0,
-        });
+    pub fn set_on_release(mut self, action: Action) -> Self {
+        self.release = Some(action);
         self
     }
     /// Set the new policy.

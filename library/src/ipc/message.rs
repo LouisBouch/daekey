@@ -5,7 +5,7 @@ use evdev::{AbsoluteAxisCode, RelativeAxisCode};
 use serde::{Deserialize, Serialize};
 
 use crate::keys::event::KeyState;
-use crate::keys::modifiers::ModifiersMatch;
+use crate::keys::modifiers::ModifierMatch;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 /// A request to the logical device.
@@ -18,7 +18,7 @@ pub enum Request {
     /// Send a quick key press and then release.
     SendKeyTap {
         key_code: KeyCode,
-        modifiers: ModifiersMatch,
+        modifiers: ModifierMatch,
     },
     /// Send a relative value motion. (Ex. Mouse movement/scroll)
     SendRelativeMotion {

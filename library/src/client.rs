@@ -11,10 +11,10 @@ use std::{
 use rayon::ThreadPoolBuildError;
 
 use crate::{
-    binding::Binding,
+    binding::Edges,
+    bindings::builder::BindingsBuildError,
     connection::{ConnectionError, socket_from_daemon},
-    format_error::{ErrorContext, print_err},
-    handle::DaemonHandle,
+    daemon_handle::DaemonHandle,
     ipc::{
         channel::{rx::Rx, tx::Tx},
         message::FromDaemon,
@@ -31,6 +31,8 @@ pub enum InstantiationError {
     DaemonConnection(ConnectionError),
     /// Failed to duplicate the daemon's socket.
     SocketCloning(io::Error),
+    /// Failed to build bindings.
+    Bindings(BindingsBuildError),
 }
 impl Display for InstantiationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -44,6 +46,9 @@ impl Display for InstantiationError {
             InstantiationError::SocketCloning(_) => {
                 write!(f, "failed to clone the daemon's socket")
             }
+            InstantiationError::Bindings(_) => {
+                write!(f, "failed to build the bindings")
+            }
         }
     }
 }
@@ -55,6 +60,7 @@ impl Error for InstantiationError {
             }
             InstantiationError::DaemonConnection(connection_error) => Some(connection_error),
             InstantiationError::SocketCloning(error) => Some(error),
+            InstantiationError::Bindings(bindings_build_error) => Some(bindings_build_error),
         }
     }
 }
@@ -93,7 +99,7 @@ pub struct Client {
     /// Whether the bindings' actions will be executed (The bindings that allow for unpausing are not paused)
     bindings_active: bool,
     /// The list of [`Binding`] and its associated [`ModdedKey`].
-    bindings: HashMap<ModdedKey, Binding>,
+    bindings: HashMap<ModdedKey, Edges>,
 }
 impl Client {
     /// Creates a new [`Client`] and connects to the daemon.
@@ -149,6 +155,6 @@ impl Client {
             }
         }
     }
-    pub fn add_binding(&mut self, modded_key: &ModdedKey, binding: &Binding) {}
+    pub fn add_binding(&mut self, modded_key: &ModdedKey, binding: &Edges) {}
 }
 // TODO: Impl remaining functions.

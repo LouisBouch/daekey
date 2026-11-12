@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 /// What [`Modifiers`] to use to match to bindind.
 #[derive(Serialize, Deserialize, Debug, Eq, Hash, PartialEq, Copy, Clone)]
-pub enum ModifiersMatch {
+pub enum ModifierMatch {
     /// Any [`Modifiers`] will match to the binding.
     Any,
     /// Exact set of [`Modifiers`] will match to the binding.

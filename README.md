@@ -21,10 +21,10 @@ features to come).
 - [ ] Custom ThreadPool struct that can hold a generic type.
 - [ ] An executor struct that holds a threadpool and a closure. Uses the threadpool to run the closure on multiple threads at the same time.
 - [ ] Split project into an additonal common library.
-  * daemon imports common library
-  * client_library imports common library and re-exports some necessary items for the client.
-  * Client only imports client_library
-- [ ] An executor struct that holds a threadpool and a closure. Uses the threadpool to run the closure on multiple threads at the same time.
+  - daemon imports common library
+  - client_library imports common library and re-exports some necessary items for the client.
+  - Client only imports client_library
+- [ ] An executor struct that holds a threadpool and a closure. Uses the threadpool to run the closure on multiple threads at the same time. The executor will live in the Action.
 - [ ] Make the daemon listen for compositor changes (like the screen layout) and
       push them to the connected users afterwards. Also give the scripts the
       compositor state at the start.
