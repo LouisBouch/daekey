@@ -10,6 +10,7 @@ use crate::{
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+// TODO: Make it compatible for exclusive usage in the daemon.
 pub struct KeyBindings(pub HashMap<KeyCode, ModifierMap<Edges>>);
 
 pub struct ModifierMap<T> {
@@ -182,6 +183,7 @@ impl<T> AtLeastBindings<T> {
 /// The actions and policies associated with each edge of a key stroke (press and release).
 pub struct Edges {
     /// Action on press, if any.
+    //TODO: Store ActionID isntead of action, because only the daemon will hold the Edges struct.
     press: Option<Action>,
     /// Action on release, if any.
     release: Option<Action>,

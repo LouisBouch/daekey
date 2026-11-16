@@ -18,13 +18,13 @@ features to come).
 
 # WIP
 
-- [ ] Custom ThreadPool struct that can hold a generic type.
-- [ ] An executor struct that holds a threadpool and a closure. Uses the threadpool to run the closure on multiple threads at the same time.
+- [x] Custom ThreadPool struct that can hold a generic type.
+- [x] An executor struct that holds a threadpool and a closure. Uses the threadpool to run the closure on multiple threads at the same time.
 - [ ] Split project into an additonal common library.
   - daemon imports common library
   - client_library imports common library and re-exports some necessary items for the client.
   - Client only imports client_library
-- [ ] An executor struct that holds a threadpool and a closure. Uses the threadpool to run the closure on multiple threads at the same time. The executor will live in the Action.
+- [ ] Make the Client only keep a list of closures associated with ActionIds. The Daemon will handle the matching of bindings and will notify the client with an ActionId if it sees a binding matches. Find a way to return this elegantly using the BindingsBuilder.
 - [ ] Make the daemon listen for compositor changes (like the screen layout) and
       push them to the connected users afterwards. Also give the scripts the
       compositor state at the start.
