@@ -2,10 +2,10 @@
 
 use crate::{
     binding::BindingPolicy,
-    bindings::action::Action,
+    bindings::action::{self, Action},
     keys::{KeyCode, modifiers::Modifiers},
 };
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 pub(crate) struct KeyBindings(pub(crate) HashMap<KeyCode, ModifierMap>);
 
@@ -121,8 +121,9 @@ impl<T> AtLeastBindings<T> {
     // assert!(alt_ctrl_collision.is_none());
     // assert!(alt_ctrl_collision.contains(&alt) && alt_ctrl_collision.contains(&ctrl));
     // ```
-    pub fn collisions(&self) -> HashMap<Modifiers, Vec<Modifiers>> {
+    pub fn collisions(&self) -> HashMap<Modifiers, HashSet<Modifiers>> {
         let mut collisions = HashMap::new();
+        #[derive(Debug, PartialEq, Eq)]
         enum BindState {
             Bound,
             NotBound,
@@ -138,27 +139,33 @@ impl<T> AtLeastBindings<T> {
             modifier_layers[count as usize - 1].insert(AtLeastKey(modifiers), Bound);
         }
         // Build the collisions map.
-        for mod_layer_index in 0..modifier_layers.len() {
+        let mut mod_layer_index = 0;
+        // for mod_layer_index in 0..modifier_layers.len() {
+        while mod_layer_index < modifier_layers.len() {
             let mod_layer = std::mem::take(&mut modifier_layers[mod_layer_index]);
             let len = mod_layer.len();
-            for (i, (AtLeastKey(mod_i), state_i)) in mod_layer.iter().take(len - 1).enumerate() {
+            dbg!(&mod_layer);
+            for (i, (AtLeastKey(mod_i), _)) in mod_layer.iter().take(len - 1).enumerate() {
                 let start = i + 1;
-                for (AtLeastKey(mod_o), state_o) in mod_layer.iter().skip(start).take(len - start) {
+                for (AtLeastKey(mod_o), _) in mod_layer.iter().skip(start).take(len - start) {
                     let permutation = *mod_i | *mod_o;
-                    let layer = permutation.modifier_count() as usize;
-                    while modifier_layers.len() < layer {
+                    let permutation_mod_count = permutation.modifier_count() as usize;
+                    while modifier_layers.len() < permutation_mod_count {
                         modifier_layers.push(BTreeMap::new());
                     }
-                    let permutation_layer = &mut modifier_layers[layer - 1];
-                    if permutation_layer.get(&AtLeastKey(permutation)).is_none() {
-                        permutation_layer.insert(AtLeastKey(permutation), NotBound);
-                        let perm_collisions = collisions.entry(permutation).or_insert(Vec::new());
-                        perm_collisions.push(*mod_i);
-                        perm_collisions.push(*mod_o);
+                    let layer = &mut modifier_layers[permutation_mod_count - 1];
+
+                    if *layer.entry(AtLeastKey(permutation)).or_insert(NotBound) == NotBound {
+                        let perm_collisions =
+                            collisions.entry(permutation).or_insert(HashSet::new());
+                        perm_collisions.insert(*mod_i);
+                        perm_collisions.insert(*mod_o);
                     }
                 }
             }
+            mod_layer_index += 1;
         }
+        dbg!(&collisions);
         collisions
     }
 }
@@ -183,4 +190,71 @@ impl Default for Edges {
         }
     }
 }
-//TODO: Add tests.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_colisions_three_single_and_one_double_modifiers() {
+        let v = ();
+        let mut bindings = AtLeastBindings::new();
+        let shift = Modifiers::LEFT_SHIFT;
+        let ctrl = Modifiers::LEFT_CTRL;
+        let alt = Modifiers::LEFT_ALT;
+        bindings.insert(shift, v);
+        bindings.insert(ctrl, v);
+        bindings.insert(alt, v);
+        bindings.insert(shift | ctrl, v);
+
+        let collisions = bindings.collisions();
+
+        let alt_shift_ctrl_collision = collisions.get(&(shift | alt | ctrl)).unwrap();
+        assert!(alt_shift_ctrl_collision.contains(&(shift | alt)));
+        assert!(alt_shift_ctrl_collision.contains(&(shift | ctrl)));
+        assert!(alt_shift_ctrl_collision.contains(&(alt | ctrl)));
+
+        let alt_ctrl_collision = collisions.get(&(alt | ctrl)).unwrap();
+        assert!(alt_ctrl_collision.contains(&alt));
+        assert!(alt_ctrl_collision.contains(&ctrl));
+
+        let shift_ctrl_collision = collisions.get(&(shift | ctrl));
+        assert!(shift_ctrl_collision.is_none());
+    }
+    #[test]
+    fn test_colisions_three_single_modifiers() {
+        let v = ();
+        let mut bindings = AtLeastBindings::new();
+        let shift = Modifiers::LEFT_SHIFT;
+        let ctrl = Modifiers::LEFT_CTRL;
+        let alt = Modifiers::LEFT_ALT;
+        bindings.insert(shift, v);
+        bindings.insert(ctrl, v);
+        bindings.insert(alt, v);
+
+        let collisions = bindings.collisions();
+        // dbg!(&collisions);
+
+        let alt_ctrl_collision = collisions.get(&(alt | ctrl)).unwrap();
+        assert!(alt_ctrl_collision.contains(&ctrl));
+        assert!(alt_ctrl_collision.contains(&alt));
+
+        let alt_shift_ctrl_collision = collisions.get(&(shift | alt | ctrl)).unwrap();
+        assert!(alt_shift_ctrl_collision.contains(&(shift | ctrl)));
+        assert!(alt_shift_ctrl_collision.contains(&(alt | ctrl)));
+        assert!(alt_shift_ctrl_collision.contains(&(shift | alt)));
+    }
+    #[test]
+    fn test_colisions_two_single_modifiers() {
+        let v = ();
+        let mut bindings = AtLeastBindings::new();
+        let shift = Modifiers::LEFT_SHIFT;
+        let ctrl = Modifiers::LEFT_CTRL;
+
+        bindings.insert(shift, v);
+        bindings.insert(ctrl, v);
+        let collisions = bindings.collisions();
+        let shift_ctrl_collision = collisions.get(&(shift | ctrl)).unwrap();
+        assert!(shift_ctrl_collision.contains(&shift));
+        assert!(shift_ctrl_collision.contains(&ctrl));
+    }
+}

@@ -1,6 +1,6 @@
 //! Exposes bit flags for different modifiers.
 
-use std::ops::BitOr;
+use std::{fmt::Debug, ops::BitOr};
 
 use serde::{Deserialize, Serialize};
 
@@ -14,7 +14,7 @@ pub enum ModifierMatch {
 }
 
 /// Represents a set of modifiers.
-#[derive(Serialize, Deserialize, Debug, Eq, Hash, PartialEq, Copy, Clone)]
+#[derive(Serialize, Deserialize, Eq, Hash, PartialEq, Copy, Clone)]
 /// List of active modifiers stored as a bitmap internally.
 pub struct Modifiers(u16);
 impl Modifiers {
@@ -71,10 +71,36 @@ impl Modifiers {
 
     pub const LEFT_META: Modifiers = Modifiers(1 << 6);
     pub const RIGHT_META: Modifiers = Modifiers(1 << 7);
+    const MODIFIERS_LIST: [(Modifiers, &str); 8] = [
+        (Self::LEFT_SHIFT, "Left_Shift"),
+        (Self::RIGHT_SHIFT, "Right_Shift"),
+        (Self::LEFT_ALT, "Left_Alt"),
+        (Self::RIGHT_ALT, "Right_Alt"),
+        (Self::LEFT_META, "Left_Meta"),
+        (Self::RIGHT_META, "Right_Meta"),
+        (Self::LEFT_CTRL, "Left_Ctrl"),
+        (Self::RIGHT_CTRL, "Right_Ctrl"),
+    ];
 }
 impl BitOr for Modifiers {
     type Output = Self;
     fn bitor(self, rhs: Self) -> Self::Output {
         Modifiers(self.0 | rhs.0)
+    }
+}
+impl Debug for Modifiers {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Modifiers(")?;
+        let mut first = true;
+        for (modi, string_modi) in Self::MODIFIERS_LIST {
+            if self.contains(modi) {
+                if !first {
+                    f.write_str(" | ")?;
+                }
+                f.write_str(string_modi)?;
+                first = false;
+            }
+        }
+        f.write_str(")")
     }
 }
