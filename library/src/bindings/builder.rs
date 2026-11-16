@@ -18,7 +18,15 @@ const DEFAULT_ACTIVE_ON_PAUSE: bool = false;
 
 /// Error when building the bindings.
 #[derive(Debug)]
-pub enum BindingsBuildError {}
+pub enum BindingsBuildError {
+    /// Binding defined twice.
+    DuplicateBinding {
+        /// Concerned key.
+        key: KeyCode,
+        /// Associated modifiers.
+        modifiers: ModifierMatch,
+    },
+}
 impl Display for BindingsBuildError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         todo!()
@@ -31,6 +39,10 @@ impl Error for BindingsBuildError {
 }
 
 // TODO: make client take a builder when instantiated.
+// NEXT IMPORTANT: Client should not hold the [`KeyBindings`], the daemon should.
+// [`Edges`] Should be changed so that Instead of [`Action`], it holds an ActionId.
+// This client will only hold a HashMap of ActionId->Action. This will require a bunch of
+// refactoring.
 /// Builder for the bindings.
 pub struct BindingsBuilder {
     /// Requested bindings.
@@ -66,8 +78,11 @@ impl BindingsBuilder {
         } in self.pending
         {
             let modifiers_map = map.entry(key).or_insert(ModifierMap::default());
+            if modifiers_map.contains_key(&modifiers) {
+                return Err(BindingsBuildError::DuplicateBinding { key, modifiers });
+            }
             todo!()
-            // Check if colliding odifiers from teh atleast map are bound in Exact before
+            // Check if colliding modifiers from the atleast map are bound in Exact before
             // throwing an error.
         }
         Ok(KeyBindings(map))
@@ -114,7 +129,6 @@ impl PendingBinding {
     }
 }
 
-// TODO: Move the definitions somewhere appropriate.
 /// The closure associated with the action.
 pub struct PendingRunnable {
     /// The closure that will run.

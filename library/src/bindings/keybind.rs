@@ -2,20 +2,48 @@
 
 use crate::{
     binding::BindingPolicy,
-    bindings::action::{self, Action},
-    keys::{KeyCode, modifiers::Modifiers},
+    bindings::action::Action,
+    keys::{
+        KeyCode,
+        modifiers::{ModifierMatch, Modifiers},
+    },
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-pub(crate) struct KeyBindings(pub(crate) HashMap<KeyCode, ModifierMap>);
+pub struct KeyBindings(pub HashMap<KeyCode, ModifierMap<Edges>>);
 
-#[derive(Default)]
-/// Holds bindings associated to different modifiers.
-pub struct ModifierMap {
-    /// Bindings for modifiers tthat must match exactly.
-    exact: HashMap<Modifiers, Edges>,
-    /// Bindings for modifiers that must match exactly with at least the modifiers.
-    at_least: AtLeastBindings<Edges>,
+pub struct ModifierMap<T> {
+    /// Bindings for modifiers that must match exactly.
+    exact: HashMap<Modifiers, T>,
+    /// Bindings for modifiers that must match with at least these modifiers.
+    at_least: AtLeastBindings<T>,
+}
+impl<T> ModifierMap<T> {
+    pub fn new() -> Self {
+        Default::default()
+    }
+    /// Insert bindings with associated [`ModifierMatch`].
+    pub fn insert(&mut self, modifiers: ModifierMatch, v: T) -> Option<T> {
+        match modifiers {
+            ModifierMatch::AtLeast(m) => self.at_least.insert(m, v),
+            ModifierMatch::Exact(m) => self.exact.insert(m, v),
+        }
+    }
+    /// Check whether a [`ModifierMatch`] is contained in the [`ModifierMap`].
+    pub fn contains_key(&self, modifiers: &ModifierMatch) -> bool {
+        match modifiers {
+            ModifierMatch::AtLeast(modifiers) => self.at_least.contains_key(modifiers),
+            ModifierMatch::Exact(modifiers) => self.exact.contains_key(modifiers),
+        }
+    }
+}
+impl<T> Default for ModifierMap<T> {
+    fn default() -> Self {
+        Self {
+            exact: Default::default(),
+            at_least: Default::default(),
+        }
+    }
 }
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 struct AtLeastKey(Modifiers);
@@ -26,7 +54,7 @@ impl PartialOrd for AtLeastKey {
 }
 impl Ord for AtLeastKey {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        // Sort in reverse order. First the [`Modifiers`] with more total modifires and then
+        // Sort in reverse order. First the [`Modifiers`] with more total modifiers and then
         // arbirtarily using the bitmap value.
         other
             .0
@@ -54,6 +82,10 @@ impl<T> AtLeastBindings<T> {
     /// If it did have this key present, the value is updated, and the old one is returned.
     pub fn insert(&mut self, modifiers: Modifiers, value: T) -> Option<T> {
         self.bindings.insert(AtLeastKey(modifiers), value)
+    }
+    /// Check if key is already inserted.
+    pub fn contains_key(&self, modifiers: &Modifiers) -> bool {
+        self.bindings.contains_key(&AtLeastKey(*modifiers))
     }
     /// Get all values whose [`Modifiers`] are contained within the argument's [`Modifiers`].
     pub fn get_all(&self, modifiers: Modifiers) -> Vec<&T> {
@@ -84,7 +116,7 @@ impl<T> AtLeastBindings<T> {
         edges_list
     }
     /// Obtain a map of [`Modifiers`] where the key represents modifiers that, when pressed,
-    /// result in colliding [`Modifiers`]. A collision here represents ambiguity in the bindign
+    /// result in colliding [`Modifiers`]. A collision here represents ambiguity in the binding
     /// resolution.
     ///
     /// Essentially, each key is a binding that should be implemented to avoid ambiguity.
@@ -95,32 +127,6 @@ impl<T> AtLeastBindings<T> {
     /// not bound yet. This is because Shift+Ctrl, Ctrl+Alt and Shift+Alt, SHOULD be bound to
     /// avoid the collision between Shift, Ctrl and Alt. It returns these anticipatory collisions to
     /// prevent you from having to run the algorithm multiple times.
-    ///
-    // # Examples
-    // ```rust
-    // use library::bindings::builder::{AtLeastBindings};
-    // // Dummy value for the example.
-    // let v = ();
-    // let bindings = AtLeastBindings::new();
-    // let shift = Modifiers::LEFT_SHIFT;
-    // let ctrl = Modifiers::LEFT_CTRL;
-    // let alt = Modifiers::LEFT_ALT;
-    //
-    // bindings.insert(shift, v);
-    // bindings.insert(ctrl, v);
-    // let collisions = bindings.collisions();
-    // let shift_ctrl_collision = collisions.get(&(shift | ctrl)).unwrap();
-    // assert!(shift_ctrl_collision.contains(&shift) && shift_ctrl_collision.contains(&ctrl));
-    //
-    // bindings.insert(alt, v);
-    // bindings.insert(shift | ctrl, v);
-    // let collisions = bindings.collisions();
-    // let alt_shift_ctrl_collision = collisions.get(&(shift | alt | ctrl));
-    // let alt_ctrl_collision = collisions.get(&(alt | ctrl)).unwrap();
-    // // Empty because Shift+Ctrl matches and is more specific than the other bindings.
-    // assert!(alt_ctrl_collision.is_none());
-    // assert!(alt_ctrl_collision.contains(&alt) && alt_ctrl_collision.contains(&ctrl));
-    // ```
     pub fn collisions(&self) -> HashMap<Modifiers, HashSet<Modifiers>> {
         let mut collisions = HashMap::new();
         #[derive(Debug, PartialEq, Eq)]
@@ -133,6 +139,10 @@ impl<T> AtLeastBindings<T> {
         // Fill array with arrays of modifiers with the same modifier count.
         for (&AtLeastKey(modifiers), _) in self.bindings.iter() {
             let count = modifiers.modifier_count();
+            // Cannot conflict with no modifiers.
+            if count == 0 {
+                continue;
+            }
             while modifier_layers.len() < count as usize {
                 modifier_layers.push(BTreeMap::new());
             }
@@ -170,7 +180,7 @@ impl<T> AtLeastBindings<T> {
     }
 }
 /// The actions and policies associated with each edge of a key stroke (press and release).
-struct Edges {
+pub struct Edges {
     /// Action on press, if any.
     press: Option<Action>,
     /// Action on release, if any.
