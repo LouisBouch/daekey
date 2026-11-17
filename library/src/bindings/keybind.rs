@@ -1,8 +1,9 @@
 //! Strucs associated with keybinds.
+//! TODO: Move this to the shared library.
+//! Also, move each struct to its own module?
 
 use crate::{
     binding::BindingPolicy,
-    bindings::action::Action,
     keys::{
         KeyCode,
         modifiers::{ModifierMatch, Modifiers},
@@ -10,10 +11,24 @@ use crate::{
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-// TODO: Make it compatible for exclusive usage in the daemon.
-pub struct KeyBindings(pub HashMap<KeyCode, ModifierMap<Edges>>);
+/// Id of an [`super::action::Action`].
+pub struct ActionId(u64);
+/// Bindings associated with each key.
+pub struct KeyBindings(HashMap<KeyCode, ModifierMap<Edges>>);
+impl KeyBindings {
+    pub fn new() -> Self {
+        Self(HashMap::new())
+    }
+    /// Collisions between at-least modifier bindings. Each map key represents a combination of
+    /// modifiers that can be pressed when the binding triggers for the given keycode.
+    /// The associated value describes at-least modifier bindings that conflict with the pressed modifiers.
+    pub fn collisions(&self) -> HashMap<(KeyCode, Modifiers), HashSet<Modifiers>> {
+        todo!()
+    }
+}
 
-pub struct ModifierMap<T> {
+/// Map of at-least and exact modifiers and their associated value.
+struct ModifierMap<T> {
     /// Bindings for modifiers that must match exactly.
     exact: HashMap<Modifiers, T>,
     /// Bindings for modifiers that must match with at least these modifiers.
@@ -36,6 +51,17 @@ impl<T> ModifierMap<T> {
             ModifierMatch::AtLeast(modifiers) => self.at_least.contains_key(modifiers),
             ModifierMatch::Exact(modifiers) => self.exact.contains_key(modifiers),
         }
+    }
+    /// Collisions between at-least modifier bindings. Each map key represents a combination of
+    /// modifiers that can be pressed when the binding triggers. The associated value describes
+    /// at-least modifier bindings that conflict with the pressed modifiers.
+    pub fn collisions(&self) -> HashMap<Modifiers, HashSet<Modifiers>> {
+        let mut collisions = self.at_least.collisions();
+        // Pressed binding's modifiers will not conflict if exact modifier binding exists.
+        for key in self.exact.keys() {
+            collisions.remove(key);
+        }
+        collisions
     }
 }
 impl<T> Default for ModifierMap<T> {
@@ -64,7 +90,7 @@ impl Ord for AtLeastKey {
             .then_with(|| self.0.bits().cmp(&other.0.bits()))
     }
 }
-pub struct AtLeastBindings<T> {
+struct AtLeastBindings<T> {
     bindings: BTreeMap<AtLeastKey, T>,
 }
 impl<T> Default for AtLeastBindings<T> {
@@ -75,21 +101,21 @@ impl<T> Default for AtLeastBindings<T> {
     }
 }
 impl<T> AtLeastBindings<T> {
-    pub fn new() -> Self {
+    fn new() -> Self {
         Default::default()
     }
     /// Add new modifier with its bindings.
     /// If it did not have this key present, `None` is returned.
     /// If it did have this key present, the value is updated, and the old one is returned.
-    pub fn insert(&mut self, modifiers: Modifiers, value: T) -> Option<T> {
+    fn insert(&mut self, modifiers: Modifiers, value: T) -> Option<T> {
         self.bindings.insert(AtLeastKey(modifiers), value)
     }
     /// Check if key is already inserted.
-    pub fn contains_key(&self, modifiers: &Modifiers) -> bool {
+    fn contains_key(&self, modifiers: &Modifiers) -> bool {
         self.bindings.contains_key(&AtLeastKey(*modifiers))
     }
     /// Get all values whose [`Modifiers`] are contained within the argument's [`Modifiers`].
-    pub fn get_all(&self, modifiers: Modifiers) -> Vec<&T> {
+    fn get_all(&self, modifiers: Modifiers) -> Vec<&T> {
         let mut list = Vec::new();
         for (&AtLeastKey(modi), edges) in self.bindings.iter() {
             if modifiers.contains(modi) {
@@ -99,7 +125,7 @@ impl<T> AtLeastBindings<T> {
         list
     }
     /// Get all values that match the most amount of modifiers possible.
-    pub fn get_most_specific(&self, modifiers: Modifiers) -> Vec<&T> {
+    fn get_most_specific(&self, modifiers: Modifiers) -> Vec<&T> {
         let mut most_matching = 0;
         let mut edges_list = Vec::new();
         for (&AtLeastKey(modi), edges) in self.bindings.iter() {
@@ -128,7 +154,7 @@ impl<T> AtLeastBindings<T> {
     /// not bound yet. This is because Shift+Ctrl, Ctrl+Alt and Shift+Alt, SHOULD be bound to
     /// avoid the collision between Shift, Ctrl and Alt. It returns these anticipatory collisions to
     /// prevent you from having to run the algorithm multiple times.
-    pub fn collisions(&self) -> HashMap<Modifiers, HashSet<Modifiers>> {
+    fn collisions(&self) -> HashMap<Modifiers, HashSet<Modifiers>> {
         let mut collisions = HashMap::new();
         #[derive(Debug, PartialEq, Eq)]
         enum BindState {
@@ -155,7 +181,6 @@ impl<T> AtLeastBindings<T> {
         while mod_layer_index < modifier_layers.len() {
             let mod_layer = std::mem::take(&mut modifier_layers[mod_layer_index]);
             let len = mod_layer.len();
-            dbg!(&mod_layer);
             for (i, (AtLeastKey(mod_i), _)) in mod_layer.iter().take(len - 1).enumerate() {
                 let start = i + 1;
                 for (AtLeastKey(mod_o), _) in mod_layer.iter().skip(start).take(len - start) {
@@ -176,17 +201,15 @@ impl<T> AtLeastBindings<T> {
             }
             mod_layer_index += 1;
         }
-        dbg!(&collisions);
         collisions
     }
 }
 /// The actions and policies associated with each edge of a key stroke (press and release).
-pub struct Edges {
+struct Edges {
     /// Action on press, if any.
-    //TODO: Store ActionID isntead of action, because only the daemon will hold the Edges struct.
-    press: Option<Action>,
+    press: Option<ActionId>,
     /// Action on release, if any.
-    release: Option<Action>,
+    release: Option<ActionId>,
     /// Policy of the binding.
     policy: BindingPolicy,
     /// Whether the binding should be active when the bindings are paused.
@@ -217,6 +240,7 @@ mod tests {
         bindings.insert(ctrl, v);
         bindings.insert(alt, v);
         bindings.insert(shift | ctrl, v);
+        bindings.insert(Modifiers::NONE, v);
 
         let collisions = bindings.collisions();
 
@@ -244,7 +268,6 @@ mod tests {
         bindings.insert(alt, v);
 
         let collisions = bindings.collisions();
-        // dbg!(&collisions);
 
         let alt_ctrl_collision = collisions.get(&(alt | ctrl)).unwrap();
         assert!(alt_ctrl_collision.contains(&ctrl));

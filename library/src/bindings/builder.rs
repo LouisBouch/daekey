@@ -1,15 +1,23 @@
 //! Create bindings through a builder.
 
-use std::{collections::HashMap, error::Error, fmt::Display, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    error::Error,
+    fmt::Display,
+    sync::Arc,
+};
 
 use crate::{
     binding::BindingPolicy,
     bindings::{
-        action::BuiltinAction,
-        keybind::{KeyBindings, ModifierMap},
+        action::{Action, BuiltinAction},
+        keybind::KeyBindings,
     },
     daemon_handle::DaemonHandle,
-    keys::{self, KeyCode, modifiers::ModifierMatch},
+    keys::{
+        self, KeyCode,
+        modifiers::{ModifierMatch, Modifiers},
+    },
 };
 
 const DEFAULT_MAX_THREADS_PER_BINDING: usize = 1;
@@ -26,6 +34,11 @@ pub enum BindingsBuildError {
         /// Associated modifiers.
         modifiers: ModifierMatch,
     },
+    /// Collisions between [`ModifierMatch::AtLeast`] bindings exist.
+    ///
+    /// Each key of the [`HashMap`] represents a binding with modifiers that could be pressed during a binding.
+    /// The associated value is the set of bound at-least modifiers that conflict with it.
+    ModifierCollision(HashMap<(KeyCode, Modifiers), HashSet<Modifiers>>),
 }
 impl Display for BindingsBuildError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -37,12 +50,16 @@ impl Error for BindingsBuildError {
         todo!()
     }
 }
+/// Bindings built by the builder.
+pub struct BuiltBindings {
+    /// Keybindings that hold [`ActionId`]s instead of actual actions.
+    /// The [`ActionId`] can be used as an index for the `actions` vector.
+    bindings: KeyBindings,
+    /// List of actions.
+    actions: Vec<Action>,
+}
 
 // TODO: make client take a builder when instantiated.
-// NEXT IMPORTANT: Client should not hold the [`KeyBindings`], the daemon should.
-// [`Edges`] Should be changed so that Instead of [`Action`], it holds an ActionId.
-// This client will only hold a HashMap of ActionId->Action. This will require a bunch of
-// refactoring.
 /// Builder for the bindings.
 pub struct BindingsBuilder {
     /// Requested bindings.
@@ -65,8 +82,9 @@ impl BindingsBuilder {
         self.pending.push_mut(PendingBinding::new(key, modifiers))
     }
     /// Turn the pending bindings into the key bindings.
-    pub fn build(self) -> Result<KeyBindings, BindingsBuildError> {
-        let mut map = HashMap::new();
+    pub(crate) fn build(self) -> Result<BuiltBindings, BindingsBuildError> {
+        let mut bindings = KeyBindings::new();
+        let mut actions = Vec::new();
 
         for PendingBinding {
             key,
@@ -77,15 +95,20 @@ impl BindingsBuilder {
             on_release,
         } in self.pending
         {
-            let modifiers_map = map.entry(key).or_insert(ModifierMap::default());
-            if modifiers_map.contains_key(&modifiers) {
-                return Err(BindingsBuildError::DuplicateBinding { key, modifiers });
-            }
+            // TODO: Instead of manually making the modifier map, build all of the KeyBindings using
+            // the struct itself.
+            // let modifiers_map = bindings.entry(key).or_insert(ModifierMap::default());
+            // if modifiers_map.contains_key(&modifiers) {
+            //     return Err(BindingsBuildError::DuplicateBinding { key, modifiers });
+            // }
             todo!()
-            // Check if colliding modifiers from the atleast map are bound in Exact before
-            // throwing an error.
         }
-        Ok(KeyBindings(map))
+        let built_bindings = BuiltBindings { bindings, actions };
+        let collisions = built_bindings.bindings.collisions();
+        if collisions.len() > 0 {
+            return Err(BindingsBuildError::ModifierCollision(collisions));
+        }
+        Ok(built_bindings)
     }
 }
 /// Store information about a future binding.
