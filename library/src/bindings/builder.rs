@@ -10,14 +10,15 @@ use std::{
 use crate::{
     binding::BindingPolicy,
     bindings::{
-        action::{Action, BuiltinAction},
-        keybind::KeyBindings,
+        action::{Action, BuiltinAction, Runnable},
+        keybind::{ActionId, Binding, KeyBindings},
     },
     daemon_handle::DaemonHandle,
     keys::{
         self, KeyCode,
         modifiers::{ModifierMatch, Modifiers},
     },
+    thread_pool::{ThreadPool, ThreadPoolBuildError},
 };
 
 const DEFAULT_MAX_THREADS_PER_BINDING: usize = 1;
@@ -42,15 +43,25 @@ pub enum BindingsBuildError {
 }
 impl Display for BindingsBuildError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        todo!()
+        match self {
+            BindingsBuildError::DuplicateBinding { key, modifiers } => {
+                // TODO: implement better display for key and modifiers?
+                write!(f, "failed to build bindings, key: {key:?} with modifiers: {modifiers:?} was bound twice")
+            },
+            BindingsBuildError::ModifierCollision(hash_map) => todo!(),
+        }
     }
 }
-impl Error for BindingsBuildError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        todo!()
-    }
-}
+impl Error for BindingsBuildError {}
 /// Bindings built by the builder.
+pub struct PreparedBindings {
+    /// Keybindings that hold [`ActionId`]s instead of actual actions.
+    /// The [`ActionId`] can be used as an index for the `actions` vector.
+    bindings: KeyBindings,
+    /// List of pending actions.
+    actions: Vec<PreparedAction>,
+}
+/// Finalized bindings.
 pub struct BuiltBindings {
     /// Keybindings that hold [`ActionId`]s instead of actual actions.
     /// The [`ActionId`] can be used as an index for the `actions` vector.
@@ -81,8 +92,19 @@ impl BindingsBuilder {
     pub fn bind(&mut self, key: KeyCode, modifiers: ModifierMatch) -> &mut PendingBinding {
         self.pending.push_mut(PendingBinding::new(key, modifiers))
     }
+    fn to_prepared_action(&self, r: PendingAction) -> PreparedAction {
+        match r {
+            PendingAction::Custom(pending_runnable) => PreparedAction::Custom(PreparedRunnable {
+                max_threads: pending_runnable
+                    .max_threads
+                    .unwrap_or(self.max_threads_per_binding),
+                closure: pending_runnable.closure,
+            }),
+            PendingAction::Builtin(builtin_action) => PreparedAction::Builtin(builtin_action),
+        }
+    }
     /// Turn the pending bindings into the key bindings.
-    pub(crate) fn build(self) -> Result<BuiltBindings, BindingsBuildError> {
+    pub(crate) fn build(mut self) -> Result<PreparedBindings, BindingsBuildError> {
         let mut bindings = KeyBindings::new();
         let mut actions = Vec::new();
 
@@ -93,22 +115,40 @@ impl BindingsBuilder {
             active_when_paused,
             on_press,
             on_release,
-        } in self.pending
+        } in std::mem::take(&mut self.pending).into_iter()
         {
-            // TODO: Instead of manually making the modifier map, build all of the KeyBindings using
-            // the struct itself.
-            // let modifiers_map = bindings.entry(key).or_insert(ModifierMap::default());
-            // if modifiers_map.contains_key(&modifiers) {
-            //     return Err(BindingsBuildError::DuplicateBinding { key, modifiers });
-            // }
-            todo!()
+            let on_press_id = match on_press.map(|v| self.to_prepared_action(v)) {
+                Some(v) => {
+                    let id = ActionId::new(actions.len() as u64);
+                    actions.push(v);
+                    Some(id)
+                }
+                None => None,
+            };
+            let on_release_id = match on_release.map(|v| self.to_prepared_action(v)) {
+                Some(v) => {
+                    let id = ActionId::new(actions.len() as u64);
+                    actions.push(v);
+                    Some(id)
+                }
+                None => None,
+            };
+            let binding = Binding {
+                key,
+                modifiers,
+                policy,
+                active_when_paused,
+                on_press: on_press_id,
+                on_release: on_release_id,
+            };
+            bindings.insert(binding);
         }
-        let built_bindings = BuiltBindings { bindings, actions };
-        let collisions = built_bindings.bindings.collisions();
+        let prep_bindings = PreparedBindings { bindings, actions };
+        let collisions = prep_bindings.bindings.collisions();
         if collisions.len() > 0 {
             return Err(BindingsBuildError::ModifierCollision(collisions));
         }
-        Ok(built_bindings)
+        Ok(prep_bindings)
     }
 }
 /// Store information about a future binding.
@@ -152,11 +192,32 @@ impl PendingBinding {
     }
 }
 
+pub struct PreparedRunnable {
+    /// The closure that will run.
+    closure: Arc<dyn Fn(DaemonHandle) + Send + Sync>,
+    /// Max amount of threads that can be used to run the closure.
+    max_threads: usize,
+}
+impl PreparedRunnable {
+    /// Convert the [`PendingRunnable`] into a [`Runnable`].
+    //TODO: Maybe find a more elegant way to handle pool creation. this leaks builder implementation
+    //in the client that will eventually use it.
+    fn into_runnable(
+        self,
+        ctx_maker: impl FnMut() -> DaemonHandle,
+    ) -> Result<Runnable, ThreadPoolBuildError> {
+        Ok(Runnable {
+            closure: self.closure,
+            thread_pool: ThreadPool::try_new(self.max_threads, ctx_maker)?,
+        })
+    }
+}
 /// The closure associated with the action.
 pub struct PendingRunnable {
     /// The closure that will run.
     closure: Arc<dyn Fn(DaemonHandle) + Send + Sync>,
-    /// Max amount of threads that can be used to run the closure.
+    /// Max amount of threads that can be used to run the closure. `None` if user has not configured
+    /// it and will be configured by the builder.
     max_threads: Option<usize>,
 }
 impl PendingRunnable {
@@ -168,8 +229,15 @@ impl PendingRunnable {
     }
 }
 /// An action taken by the [`Client`].
+pub enum PreparedAction {
+    /// Custom closure defined by user ready to be built into [`Runnable`].
+    Custom(PreparedRunnable),
+    /// Action that can be executed directly on the thread.
+    Builtin(BuiltinAction),
+}
+/// An action taken by the [`Client`].
 pub enum PendingAction {
-    /// Run a custom action using a closure.
+    /// Custom closure defined by user.
     Custom(PendingRunnable),
     /// Action that can be executed directly on the thread.
     Builtin(BuiltinAction),
@@ -198,4 +266,3 @@ where
         PendingRunnable::new(self).into_pending_action()
     }
 }
-// TODO: Prevent user form calling b.bind(key1, mod1).on_press() and then  b.bind(key1, mod1).on_release()

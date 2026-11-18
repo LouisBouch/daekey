@@ -15,9 +15,9 @@ pub enum BuiltinAction {
 /// The closure associated with the action.
 pub struct Runnable {
     /// The closure that will run.
-    closure: Arc<dyn Fn(DaemonHandle) + Send + Sync>,
+    pub closure: Arc<dyn Fn(DaemonHandle) + Send + Sync>,
     /// Parked threads to be used by closures.
-    thread_pool: ThreadPool<DaemonHandle>,
+    pub thread_pool: ThreadPool<DaemonHandle>,
 }
 /// An action taken by the [`Client`].
 pub enum Action {

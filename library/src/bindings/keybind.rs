@@ -1,6 +1,5 @@
 //! Strucs associated with keybinds.
 //! TODO: Move this to the shared library.
-//! Also, move each struct to its own module?
 
 use crate::{
     binding::BindingPolicy,
@@ -13,17 +12,61 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// Id of an [`super::action::Action`].
 pub struct ActionId(u64);
+impl ActionId {
+    pub fn new(id: u64) -> Self {
+        ActionId(id)
+    }
+    /// Obtain the next [`ActionId`].
+    pub fn next(&self) -> Self {
+        ActionId(self.0 + 1)
+    }
+}
+pub struct Binding {
+    pub key: KeyCode,
+    pub modifiers: ModifierMatch,
+    pub policy: BindingPolicy,
+    pub active_when_paused: bool,
+    pub on_press: Option<ActionId>,
+    pub on_release: Option<ActionId>,
+}
 /// Bindings associated with each key.
 pub struct KeyBindings(HashMap<KeyCode, ModifierMap<Edges>>);
 impl KeyBindings {
     pub fn new() -> Self {
         Self(HashMap::new())
     }
+    /// Insert binding into the struct.
+    pub fn insert(&mut self, binding: Binding) {
+        let Binding {
+            key,
+            modifiers,
+            policy,
+            active_when_paused,
+            on_press,
+            on_release,
+        } = binding;
+        let edges = Edges {
+            press: on_press,
+            release: on_release,
+            policy: policy,
+            active_when_paused: active_when_paused,
+        };
+        let mut mod_map = ModifierMap::new();
+        mod_map.insert(modifiers, edges);
+        self.0.insert(key, mod_map);
+    }
     /// Collisions between at-least modifier bindings. Each map key represents a combination of
     /// modifiers that can be pressed when the binding triggers for the given keycode.
     /// The associated value describes at-least modifier bindings that conflict with the pressed modifiers.
     pub fn collisions(&self) -> HashMap<(KeyCode, Modifiers), HashSet<Modifiers>> {
-        todo!()
+        let mut map = HashMap::new();
+        for (keycode, modifiers_map) in self.0.iter() {
+            let collsions_map = modifiers_map.collisions();
+            for (modifiers, collision_set) in collsions_map {
+                map.insert((*keycode, modifiers), collision_set);
+            }
+        }
+        map
     }
 }
 
