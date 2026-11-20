@@ -55,15 +55,6 @@ impl Display for BindingsBuildError {
         }
     }
 }
-impl Error for BindingsBuildError {}
-/// Finalized bindings.
-pub struct BuiltBindings {
-    /// Keybindings that hold [`ActionId`]s instead of actual actions.
-    /// The [`ActionId`] can be used as an index for the `actions` vector.
-    bindings: KeyBindings,
-    /// List of actions.
-    actions: Vec<Action>,
-}
 
 // TODO: make client take a builder when instantiated.
 /// Builder for the bindings.
@@ -88,9 +79,18 @@ impl BindingsBuilder {
         self.pending.push_mut(PendingBinding::new(key, modifiers))
     }
     /// Turn the pending bindings into the key bindings.
-    pub(crate) fn build(mut self) -> Result<(KeyBindings, PreparedActions), BindingsBuildError> {
+    pub fn build(self) -> Result<(KeyBindings, PreparedActions), BindingsBuildError> {
         let mut bindings = KeyBindings::new();
         let mut actions = Vec::new();
+
+        let mut handle_pending_action = |p| match p {
+            Some(v) => {
+                let id = ActionId::new(actions.len() as u64);
+                actions.push(v);
+                Some(id)
+            }
+            None => None,
+        };
 
         for PendingBinding {
             key,
@@ -99,24 +99,10 @@ impl BindingsBuilder {
             active_when_paused,
             on_press,
             on_release,
-        } in std::mem::take(&mut self.pending).into_iter()
+        } in self.pending.into_iter()
         {
-            let on_press_id = match on_press {
-                Some(v) => {
-                    let id = ActionId::new(actions.len() as u64);
-                    actions.push(v);
-                    Some(id)
-                }
-                None => None,
-            };
-            let on_release_id = match on_release {
-                Some(v) => {
-                    let id = ActionId::new(actions.len() as u64);
-                    actions.push(v);
-                    Some(id)
-                }
-                None => None,
-            };
+            let on_press_id = handle_pending_action(on_press);
+            let on_release_id = handle_pending_action(on_release);
             let binding = Binding {
                 key,
                 modifiers,
@@ -128,7 +114,7 @@ impl BindingsBuilder {
             bindings.insert(binding);
         }
         let collisions = bindings.collisions();
-        if collisions.len() > 0 {
+        if !collisions.is_empty() {
             return Err(BindingsBuildError::ModifierCollision(collisions));
         }
         Ok((
@@ -196,8 +182,9 @@ impl PendingRunnable {
             max_threads: None,
         }
     }
-    pub fn max_threads(&mut self, max_threads: usize) {
+    pub fn max_threads(&mut self, max_threads: usize) -> &mut Self {
         self.max_threads = Some(max_threads);
+        self
     }
 }
 /// An action taken by the [`Client`].
