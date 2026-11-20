@@ -16,17 +16,23 @@ impl ActionId {
     pub fn new(id: u64) -> Self {
         ActionId(id)
     }
-    /// Obtain the next [`ActionId`].
-    pub fn next(&self) -> Self {
-        ActionId(self.0 + 1)
+    pub fn id(&self) -> u64 {
+        self.0
     }
 }
+/// A struct that wraps what a binding needs.
 pub struct Binding {
+    /// Key for the binding.
     pub key: KeyCode,
+    /// Required modifiers for the binding.
     pub modifiers: ModifierMatch,
+    /// Policy of the binding.
     pub policy: BindingPolicy,
+    /// `true` if the binding should run when the client is paused.
     pub active_when_paused: bool,
+    /// Id of the action for a press on the client side.
     pub on_press: Option<ActionId>,
+    /// Id of the action for a release on the client side.
     pub on_release: Option<ActionId>,
 }
 /// Bindings associated with each key.

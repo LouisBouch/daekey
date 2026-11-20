@@ -46,21 +46,16 @@ impl Display for BindingsBuildError {
         match self {
             BindingsBuildError::DuplicateBinding { key, modifiers } => {
                 // TODO: implement better display for key and modifiers?
-                write!(f, "failed to build bindings, key: {key:?} with modifiers: {modifiers:?} was bound twice")
-            },
+                write!(
+                    f,
+                    "failed to build bindings, key: {key:?} with modifiers: {modifiers:?} was bound twice"
+                )
+            }
             BindingsBuildError::ModifierCollision(hash_map) => todo!(),
         }
     }
 }
 impl Error for BindingsBuildError {}
-/// Bindings built by the builder.
-pub struct PreparedBindings {
-    /// Keybindings that hold [`ActionId`]s instead of actual actions.
-    /// The [`ActionId`] can be used as an index for the `actions` vector.
-    bindings: KeyBindings,
-    /// List of pending actions.
-    actions: Vec<PreparedAction>,
-}
 /// Finalized bindings.
 pub struct BuiltBindings {
     /// Keybindings that hold [`ActionId`]s instead of actual actions.
@@ -92,19 +87,8 @@ impl BindingsBuilder {
     pub fn bind(&mut self, key: KeyCode, modifiers: ModifierMatch) -> &mut PendingBinding {
         self.pending.push_mut(PendingBinding::new(key, modifiers))
     }
-    fn to_prepared_action(&self, r: PendingAction) -> PreparedAction {
-        match r {
-            PendingAction::Custom(pending_runnable) => PreparedAction::Custom(PreparedRunnable {
-                max_threads: pending_runnable
-                    .max_threads
-                    .unwrap_or(self.max_threads_per_binding),
-                closure: pending_runnable.closure,
-            }),
-            PendingAction::Builtin(builtin_action) => PreparedAction::Builtin(builtin_action),
-        }
-    }
     /// Turn the pending bindings into the key bindings.
-    pub(crate) fn build(mut self) -> Result<PreparedBindings, BindingsBuildError> {
+    pub(crate) fn build(mut self) -> Result<(KeyBindings, PreparedActions), BindingsBuildError> {
         let mut bindings = KeyBindings::new();
         let mut actions = Vec::new();
 
@@ -117,7 +101,7 @@ impl BindingsBuilder {
             on_release,
         } in std::mem::take(&mut self.pending).into_iter()
         {
-            let on_press_id = match on_press.map(|v| self.to_prepared_action(v)) {
+            let on_press_id = match on_press {
                 Some(v) => {
                     let id = ActionId::new(actions.len() as u64);
                     actions.push(v);
@@ -125,7 +109,7 @@ impl BindingsBuilder {
                 }
                 None => None,
             };
-            let on_release_id = match on_release.map(|v| self.to_prepared_action(v)) {
+            let on_release_id = match on_release {
                 Some(v) => {
                     let id = ActionId::new(actions.len() as u64);
                     actions.push(v);
@@ -143,12 +127,17 @@ impl BindingsBuilder {
             };
             bindings.insert(binding);
         }
-        let prep_bindings = PreparedBindings { bindings, actions };
-        let collisions = prep_bindings.bindings.collisions();
+        let collisions = bindings.collisions();
         if collisions.len() > 0 {
             return Err(BindingsBuildError::ModifierCollision(collisions));
         }
-        Ok(prep_bindings)
+        Ok((
+            bindings,
+            PreparedActions {
+                pending_actions: actions,
+                default_max_threads: self.max_threads_per_binding,
+            },
+        ))
     }
 }
 /// Store information about a future binding.
@@ -192,32 +181,12 @@ impl PendingBinding {
     }
 }
 
-pub struct PreparedRunnable {
-    /// The closure that will run.
-    closure: Arc<dyn Fn(DaemonHandle) + Send + Sync>,
-    /// Max amount of threads that can be used to run the closure.
-    max_threads: usize,
-}
-impl PreparedRunnable {
-    /// Convert the [`PendingRunnable`] into a [`Runnable`].
-    //TODO: Maybe find a more elegant way to handle pool creation. this leaks builder implementation
-    //in the client that will eventually use it.
-    fn into_runnable(
-        self,
-        ctx_maker: impl FnMut() -> DaemonHandle,
-    ) -> Result<Runnable, ThreadPoolBuildError> {
-        Ok(Runnable {
-            closure: self.closure,
-            thread_pool: ThreadPool::try_new(self.max_threads, ctx_maker)?,
-        })
-    }
-}
 /// The closure associated with the action.
 pub struct PendingRunnable {
     /// The closure that will run.
     closure: Arc<dyn Fn(DaemonHandle) + Send + Sync>,
     /// Max amount of threads that can be used to run the closure. `None` if user has not configured
-    /// it and will be configured by the builder.
+    /// it and will be configured by the builder's default.
     max_threads: Option<usize>,
 }
 impl PendingRunnable {
@@ -227,13 +196,9 @@ impl PendingRunnable {
             max_threads: None,
         }
     }
-}
-/// An action taken by the [`Client`].
-pub enum PreparedAction {
-    /// Custom closure defined by user ready to be built into [`Runnable`].
-    Custom(PreparedRunnable),
-    /// Action that can be executed directly on the thread.
-    Builtin(BuiltinAction),
+    pub fn max_threads(&mut self, max_threads: usize) {
+        self.max_threads = Some(max_threads);
+    }
 }
 /// An action taken by the [`Client`].
 pub enum PendingAction {
@@ -241,6 +206,40 @@ pub enum PendingAction {
     Custom(PendingRunnable),
     /// Action that can be executed directly on the thread.
     Builtin(BuiltinAction),
+}
+/// List of [`PendingAction`] with default amoutn of max threads if not already decided in the
+/// pending action.
+pub struct PreparedActions {
+    /// Default amoutn of threads that will be given to a [`Runnable`] if it isnt already decided in
+    /// the [`PendingRunnable`].
+    default_max_threads: usize,
+    /// List of [`PendingAction`] defined by user.
+    pending_actions: Vec<PendingAction>,
+}
+impl PreparedActions {
+    /// Turn the list of pending actions into actions the client can use.
+    pub fn into_actions(
+        self,
+        mut ctx_maker: impl FnMut() -> DaemonHandle,
+    ) -> Result<Vec<Action>, ThreadPoolBuildError> {
+        let mut actions = Vec::new();
+        for pending_action in self.pending_actions {
+            let action = match pending_action {
+                PendingAction::Custom(pending_runnable) => Action::Custom(Runnable {
+                    closure: pending_runnable.closure,
+                    thread_pool: ThreadPool::try_new(
+                        pending_runnable
+                            .max_threads
+                            .unwrap_or(self.default_max_threads),
+                        &mut ctx_maker,
+                    )?,
+                }),
+                PendingAction::Builtin(builtin_action) => Action::Builtin(builtin_action),
+            };
+            actions.push(action);
+        }
+        Ok(actions)
+    }
 }
 
 /// Implementing this trait will allow conversion to a [`PendingAction`].
