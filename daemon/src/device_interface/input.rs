@@ -7,7 +7,7 @@ use crate::{
     logical_device::router::PhysicalTxMaker,
     watcher::{ThreadExit, ThreadStatus, Watcher},
 };
-use library::format_error::{ErrorContext, print_err};
+use client_lib::format_error::{ErrorContext, print_err};
 
 use evdev::{BusType, Device, EventType};
 mod device_listen;

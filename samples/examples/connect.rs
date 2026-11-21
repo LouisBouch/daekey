@@ -1,4 +1,4 @@
-use library::client::Client;
+use client_lib::client::Client;
 
 fn main() {
     let mut client = Client::instantiate(5).unwrap();

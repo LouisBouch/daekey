@@ -2,8 +2,8 @@
 //! Also handles the creation of the client connections in order to keep the routing list up to date.
 
 use crossbeam_channel::Receiver;
-use library::format_error::print_err;
-use library::ipc::{
+use client_lib::format_error::print_err;
+use client_lib::ipc::{
     channel::{rx::Rx, tx::Tx},
     message,
 };

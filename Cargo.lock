@@ -54,6 +54,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
 
 [[package]]
+name = "client_lib"
+version = "0.1.0"
+dependencies = [
+ "crossbeam",
+ "crossbeam-channel",
+ "evdev",
+ "nix 0.31.3",
+ "postcard",
+ "rayon",
+ "serde",
+]
+
+[[package]]
 name = "cobs"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -128,10 +141,10 @@ checksum = "61803da095bee82a81bb1a452ecc25d3b2f1416d1897eb86430c6159ef717c17"
 name = "daemon"
 version = "0.1.0"
 dependencies = [
+ "client_lib",
  "crossbeam",
  "crossbeam-channel",
  "evdev",
- "library",
  "nix 0.31.3",
  "postcard",
  "serde",
@@ -202,19 +215,6 @@ name = "libc"
 version = "0.2.189"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
-
-[[package]]
-name = "library"
-version = "0.1.0"
-dependencies = [
- "crossbeam",
- "crossbeam-channel",
- "evdev",
- "nix 0.31.3",
- "postcard",
- "rayon",
- "serde",
-]
 
 [[package]]
 name = "lock_api"
@@ -329,7 +329,7 @@ dependencies = [
 name = "samples"
 version = "0.1.0"
 dependencies = [
- "library",
+ "client_lib",
 ]
 
 [[package]]

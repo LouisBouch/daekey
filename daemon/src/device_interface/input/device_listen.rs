@@ -7,7 +7,7 @@ use nix::libc;
 
 use crate::logical_device::router::{FromPhysicalDevice, PhysicalTx};
 
-use library::{ipc::message::Request, keys::event::KeyState};
+use client_lib::{ipc::message::Request, keys::event::KeyState};
 
 const MAX_SUCCESSIVE_ERRORS: u32 = 20;
 

@@ -1,4 +1,4 @@
-use library::format_error::print_err;
+use client_lib::format_error::print_err;
 use std::{error::Error, fmt::Display, process::ExitCode};
 
 mod client_gateway;

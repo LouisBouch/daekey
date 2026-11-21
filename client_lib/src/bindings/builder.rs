@@ -55,6 +55,7 @@ impl Display for BindingsBuildError {
         }
     }
 }
+impl Error for BindingsBuildError{}
 
 // TODO: make client take a builder when instantiated.
 /// Builder for the bindings.

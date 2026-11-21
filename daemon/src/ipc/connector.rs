@@ -13,7 +13,7 @@ use std::time::Duration;
 use crossbeam_channel::Sender;
 use nix::unistd;
 
-use library::format_error::{ErrorContext, print_err};
+use client_lib::format_error::{ErrorContext, print_err};
 
 /// Required permissions for the socket's parent.
 const SOCKET_PARENT_PERMISSIONS: u32 = 0o750;
@@ -106,7 +106,7 @@ impl Error for SocketServerError {
 /// Create the socket server other processes will use to connect to this daemon.
 pub fn create_socket_server() -> Result<UnixListener, SocketServerError> {
     // TODO: Test all the checks.
-    let socket_path = PathBuf::from(library::constants::DAEMON_SOCKET_PATH);
+    let socket_path = PathBuf::from(client_lib::constants::DAEMON_SOCKET_PATH);
     // Check if path is directory.
     if socket_path.is_dir() {
         return Err(SocketServerError::SocketPathIsDir(socket_path));

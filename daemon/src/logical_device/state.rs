@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use library::keys::{self, KeyCode};
+use client_lib::keys::{self, KeyCode};
 
 use crate::logical_device::router::{PhysicalId, SimulatedId};
 

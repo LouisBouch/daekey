@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 crossbeam = "0.8"
 crossbeam-channel = "0.5"
-library = { path = "../library" }
+client_lib = { path = "../client_lib" }
 nix = { version = "0.31", features = ["uio", "socket", "user", "poll"] }
 evdev = "0.13.2"
 postcard = { version = "1.0.0", features = ["use-std"] }

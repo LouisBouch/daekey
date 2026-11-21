@@ -1,14 +1,18 @@
-use std::{collections::{HashMap, HashSet}, hash::Hash, thread::JoinHandle};
+use std::{
+    collections::{HashMap, HashSet},
+    hash::Hash,
+    thread::JoinHandle,
+};
 
-use crossbeam_channel::{Receiver, SendError, Sender};
-use library::{
+use client_lib::{
     binding::BindingPolicy,
     keys::{KeyCode, modded_key::ModdedKey, modifiers::Modifiers},
 };
+use crossbeam_channel::{Receiver, SendError, Sender};
 
 use crate::{client_gateway::FromLogicalDevice, device_interface::uinput::UInput};
 
-use library::ipc::message::{FromProcess, Request};
+use client_lib::ipc::message::{FromProcess, Request};
 
 /// A message to the logical device from a physical one.
 #[derive(Clone, Debug)]
