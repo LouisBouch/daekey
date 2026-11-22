@@ -7,10 +7,10 @@ use crate::{daemon_handle::DaemonHandle, thread_pool::ThreadPool};
 /// Action that can be executed directly on the thread.
 #[derive(Clone, Copy, Debug)]
 pub enum BuiltinAction {
-    /// Toggles the bindings on or off.
-    ToggleBindings,
+    /// If `true`, pauses the bindings.
+    SetPause(bool),
     /// Disconnects the process from the daemon.
-    Exit,
+    Close,
 }
 /// The closure associated with the action.
 pub struct Runnable {

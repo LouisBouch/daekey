@@ -8,18 +8,16 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use rayon::ThreadPoolBuildError;
+use common_lib::ipc::{
+    channel::{rx::Rx, tx::Tx},
+    message::FromDaemon,
+};
 
+use crate::{builder::{BindingsBuildError, BindingsBuilder}, thread_pool::ThreadPoolBuildError};
 use crate::{
-    binding::Edges,
-    bindings::builder::BindingsBuildError,
+    action::Action,
     connection::{ConnectionError, socket_from_daemon},
     daemon_handle::DaemonHandle,
-    ipc::{
-        channel::{rx::Rx, tx::Tx},
-        message::FromDaemon,
-    },
-    keys::modded_key::ModdedKey,
 };
 
 #[derive(Debug)]
@@ -89,17 +87,10 @@ impl Error for RunError {
 
 /// An instance of a connection to the daemon.
 pub struct Client {
-    // TODO: NEXT Get rid of thread pool and handles, the ClosureAction s will hold them.
-    /// Parked threads to be used by closures.
-    thread_pool: rayon::ThreadPool,
-    /// List of handles to be handed to closures.
-    handles: Arc<Mutex<Vec<DaemonHandle>>>,
     /// The connection that will receive messages from the daemon.
     daemon_rx: Rx<FromDaemon>,
-    /// Whether the bindings' actions will be executed (The bindings that allow for unpausing are not paused)
-    bindings_active: bool,
-    /// The list of [`Binding`] and its associated [`ModdedKey`].
-    bindings: HashMap<ModdedKey, Edges>,
+    /// The list of [`Action`] the client can execute.
+    bindings: Vec<Action>,
 }
 impl Client {
     /// Creates a new [`Client`] and connects to the daemon.

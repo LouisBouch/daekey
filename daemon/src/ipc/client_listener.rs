@@ -6,7 +6,7 @@ use std::thread::JoinHandle;
 use crate::{client_gateway::ClientListenerError, logical_device::router::SimulatedTx};
 
 use client_lib::ipc::channel::rx::Rx;
-use client_lib::ipc::message::FromProcess;
+use client_lib::ipc::message::FromClient;
 
 /// Notifies router when dropped.
 struct DropGuard {
@@ -22,20 +22,20 @@ impl Drop for DropGuard {
     /// Make sure the logical device knows the device closed so that it can
     /// drop values it stored about it.
     fn drop(&mut self) {
-        let _ = self.device_tx.send(FromProcess::Close);
+        let _ = self.device_tx.send(FromClient::Close);
     }
 }
 
 /// Info and logic about the receiving side of a connection with a process.
 pub struct ClientListener {
     /// Receives messages from the client through a [`Rx`].
-    connection_rx: Rx<FromProcess>,
+    connection_rx: Rx<FromClient>,
     /// Channel to transmit to the logical device.
     device_tx: SimulatedTx,
 }
 
 impl ClientListener {
-    pub fn new(connection_rx: Rx<FromProcess>, device_tx: SimulatedTx) -> Self {
+    pub fn new(connection_rx: Rx<FromClient>, device_tx: SimulatedTx) -> Self {
         Self {
             connection_rx,
             device_tx,
@@ -67,12 +67,12 @@ impl ClientListener {
         })
     }
     /// Handles a message received from the process.
-    pub fn handle_message(&mut self, msg: FromProcess) -> ControlFlow<()> {
+    pub fn handle_message(&mut self, msg: FromClient) -> ControlFlow<()> {
         match msg {
-            FromProcess::Subscribe => todo!(),
-            FromProcess::Close => ControlFlow::Break(()),
-            FromProcess::Request(_) => todo!(),
-            FromProcess::SetPause(_) => todo!(),
+            FromClient::SetSubscriptionList(_) => todo!(),
+            FromClient::Close => ControlFlow::Break(()),
+            FromClient::Request(_) => todo!(),
+            FromClient::SetPause(_) => todo!(),
         }
     }
 }

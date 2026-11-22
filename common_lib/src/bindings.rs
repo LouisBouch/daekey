@@ -1,16 +1,12 @@
-//! Strucs associated with keybinds.
-//! TODO: Move this to the shared library.
+//! Strucs associated with bindings.
 
-use crate::{
-    binding::BindingPolicy,
-    keys::{
-        KeyCode,
-        modifiers::{ModifierMatch, Modifiers},
-    },
-};
+use serde::{Deserialize, Serialize};
+
+use crate::input::{KeyCode, ModifierMatch, Modifiers};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-/// Id of an [`super::action::Action`].
+/// Id for an action.
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ActionId(u64);
 impl ActionId {
     pub fn new(id: u64) -> Self {
@@ -18,6 +14,19 @@ impl ActionId {
     }
     pub fn id(&self) -> u64 {
         self.0
+    }
+}
+/// What to do with the event if it is bound.
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy)]
+pub enum BindingPolicy {
+    /// Trigger the binding and then forward the key to the compositor.
+    Forward,
+    /// Trigger the binding but do no forward to compositor.
+    Swallow,
+}
+impl Default for BindingPolicy {
+    fn default() -> Self {
+        Self::Swallow
     }
 }
 /// A struct that wraps what a binding needs.
@@ -36,13 +45,16 @@ pub struct Binding {
     pub on_release: Option<ActionId>,
 }
 /// Bindings associated with each key.
-pub struct KeyBindings(HashMap<KeyCode, ModifierMap<Edges>>);
-impl KeyBindings {
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Bindings(HashMap<KeyCode, ModifierMap<Edges>>);
+impl Bindings {
     pub fn new() -> Self {
         Self(HashMap::new())
     }
     /// Insert binding into the struct.
-    pub fn insert(&mut self, binding: Binding) {
+    ///
+    /// Returns previous [`Binding`] associated with key+modifiers, if any.
+    pub fn insert(&mut self, binding: Binding) -> Option<Binding> {
         let Binding {
             key,
             modifiers,
@@ -57,9 +69,23 @@ impl KeyBindings {
             policy: policy,
             active_when_paused: active_when_paused,
         };
-        let mut mod_map = ModifierMap::new();
-        mod_map.insert(modifiers, edges);
-        self.0.insert(key, mod_map);
+        let mod_map = self.0.entry(key).or_default();
+        mod_map.insert(modifiers, edges).map(|v| {
+            let Edges {
+                press,
+                release,
+                policy,
+                active_when_paused,
+            } = v;
+            Binding {
+                key,
+                modifiers,
+                policy,
+                active_when_paused,
+                on_press: press,
+                on_release: release,
+            }
+        })
     }
     /// Collisions between at-least modifier bindings. Each map key represents a combination of
     /// modifiers that can be pressed when the binding triggers for the given keycode.
@@ -75,8 +101,11 @@ impl KeyBindings {
         map
     }
 }
+//TODO: Maybe make moudle from ModifierMap<T> with its content (not Edges cause its not its content
+//before someone sets T to be Edges)
 
 /// Map of at-least and exact modifiers and their associated value.
+#[derive(Serialize, Deserialize, Clone, Debug)]
 struct ModifierMap<T> {
     /// Bindings for modifiers that must match exactly.
     exact: HashMap<Modifiers, T>,
@@ -121,7 +150,7 @@ impl<T> Default for ModifierMap<T> {
         }
     }
 }
-#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Copy, Clone)]
 struct AtLeastKey(Modifiers);
 impl PartialOrd for AtLeastKey {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
@@ -139,6 +168,7 @@ impl Ord for AtLeastKey {
             .then_with(|| self.0.bits().cmp(&other.0.bits()))
     }
 }
+#[derive(Serialize, Deserialize, Clone, Debug)]
 struct AtLeastBindings<T> {
     bindings: BTreeMap<AtLeastKey, T>,
 }
@@ -228,9 +258,12 @@ impl<T> AtLeastBindings<T> {
         let mut mod_layer_index = 0;
         // for mod_layer_index in 0..modifier_layers.len() {
         while mod_layer_index < modifier_layers.len() {
+            mod_layer_index += 1;
             let mod_layer = std::mem::take(&mut modifier_layers[mod_layer_index]);
             let len = mod_layer.len();
-            for (i, (AtLeastKey(mod_i), _)) in mod_layer.iter().take(len - 1).enumerate() {
+            for (i, (AtLeastKey(mod_i), _)) in
+                mod_layer.iter().take(len.saturating_sub(1)).enumerate()
+            {
                 let start = i + 1;
                 for (AtLeastKey(mod_o), _) in mod_layer.iter().skip(start).take(len - start) {
                     let permutation = *mod_i | *mod_o;
@@ -248,12 +281,12 @@ impl<T> AtLeastBindings<T> {
                     }
                 }
             }
-            mod_layer_index += 1;
         }
         collisions
     }
 }
 /// The actions and policies associated with each edge of a key stroke (press and release).
+#[derive(Serialize, Deserialize, Clone, Debug)]
 struct Edges {
     /// Action on press, if any.
     press: Option<ActionId>,

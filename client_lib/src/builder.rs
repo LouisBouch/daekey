@@ -7,17 +7,12 @@ use std::{
     sync::Arc,
 };
 
+use common_lib::bindings::{ActionId, Binding, BindingPolicy, Bindings};
+use common_lib::input::{KeyCode, ModifierMatch, Modifiers};
+
 use crate::{
-    binding::BindingPolicy,
-    bindings::{
-        action::{Action, BuiltinAction, Runnable},
-        keybind::{ActionId, Binding, KeyBindings},
-    },
+    action::{Action, BuiltinAction, Runnable},
     daemon_handle::DaemonHandle,
-    keys::{
-        self, KeyCode,
-        modifiers::{ModifierMatch, Modifiers},
-    },
     thread_pool::{ThreadPool, ThreadPoolBuildError},
 };
 
@@ -55,7 +50,7 @@ impl Display for BindingsBuildError {
         }
     }
 }
-impl Error for BindingsBuildError{}
+impl Error for BindingsBuildError {}
 
 // TODO: make client take a builder when instantiated.
 /// Builder for the bindings.
@@ -80,8 +75,8 @@ impl BindingsBuilder {
         self.pending.push_mut(PendingBinding::new(key, modifiers))
     }
     /// Turn the pending bindings into the key bindings.
-    pub fn build(self) -> Result<(KeyBindings, PreparedActions), BindingsBuildError> {
-        let mut bindings = KeyBindings::new();
+    pub fn build(self) -> Result<(Bindings, PreparedActions), BindingsBuildError> {
+        let mut bindings = Bindings::new();
         let mut actions = Vec::new();
 
         let mut handle_pending_action = |p| match p {
@@ -112,7 +107,9 @@ impl BindingsBuilder {
                 on_press: on_press_id,
                 on_release: on_release_id,
             };
-            bindings.insert(binding);
+            if bindings.insert(binding).is_some() {
+                return Err(BindingsBuildError::DuplicateBinding { key, modifiers });
+            };
         }
         let collisions = bindings.collisions();
         if !collisions.is_empty() {
@@ -129,7 +126,7 @@ impl BindingsBuilder {
 }
 /// Store information about a future binding.
 pub struct PendingBinding {
-    key: keys::KeyCode,
+    key: KeyCode,
     modifiers: ModifierMatch,
     policy: BindingPolicy,
     active_when_paused: bool,
@@ -137,7 +134,7 @@ pub struct PendingBinding {
     on_release: Option<PendingAction>,
 }
 impl PendingBinding {
-    fn new(key: keys::KeyCode, modifiers: ModifierMatch) -> Self {
+    fn new(key: KeyCode, modifiers: ModifierMatch) -> Self {
         Self {
             key,
             modifiers,

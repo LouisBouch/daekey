@@ -12,7 +12,7 @@ use crossbeam_channel::{Receiver, SendError, Sender};
 
 use crate::{client_gateway::FromLogicalDevice, device_interface::uinput::UInput};
 
-use client_lib::ipc::message::{FromProcess, Request};
+use client_lib::ipc::message::{FromClient, Request};
 
 /// A message to the logical device from a physical one.
 #[derive(Clone, Debug)]
@@ -95,11 +95,11 @@ impl Id for SimulatedId {
     }
 }
 /// Wraps a message for the logical device with the incoming simulated device's [`SimulatedId`].
-pub type WrappedSimulatedMessage = WrappedMessage<SimulatedId, FromProcess>;
+pub type WrappedSimulatedMessage = WrappedMessage<SimulatedId, FromClient>;
 /// Sender that ensures messages are wrapped with the simulated device's [`SimulatedId`].
-pub type SimulatedTx = Tx<SimulatedId, FromProcess>;
+pub type SimulatedTx = Tx<SimulatedId, FromClient>;
 /// Creates simulated senders to the logical device with increasing ids.
-pub type SimulatedTxMaker = TxMaker<SimulatedId, FromProcess>;
+pub type SimulatedTxMaker = TxMaker<SimulatedId, FromClient>;
 
 /// A physical device's id. Comes from an actual physical device.
 /// A device of this type will WILL trigger bindings.

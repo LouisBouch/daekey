@@ -1,11 +1,9 @@
 //! Holds differents types of messages that can be sent across processes.
 
-use crate::keys::KeyCode;
-use evdev::{AbsoluteAxisCode, RelativeAxisCode};
+use crate::input::{KeyCode, RelativeAxisCode, AbsoluteAxisCode, KeyState, Modifiers};
+use crate::bindings::Bindings;
 use serde::{Deserialize, Serialize};
 
-use crate::keys::event::KeyState;
-use crate::keys::modifiers::ModifierMatch;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 /// A request to the logical device.
@@ -18,28 +16,28 @@ pub enum Request {
     /// Send a quick key press and then release.
     SendKeyTap {
         key_code: KeyCode,
-        modifiers: ModifierMatch,
+        modifiers: Modifiers,
     },
     /// Send a relative value motion. (Ex. Mouse movement/scroll)
     SendRelativeMotion {
         relative_axis: RelativeAxisCode,
         value: i32,
     },
-    /// Send an value value motion. (Ex. Mouse movement to specific point on screen)
+    /// Send an absolute value motion. (Ex. Mouse movement to specific point on screen)
     SendAbsoluteMotion {
         absolute_axis: AbsoluteAxisCode,
         value: i32,
     },
 }
-/// A message to the logical device from a simulated one.
+/// A message to the daemon from a connected client.
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub enum FromProcess {
-    /// Request actions from the logical device.
-    Request(Vec<Request>),
-    /// While true, disconnects selected bindings from reachingthe device.
+pub enum FromClient {
+    /// Send requests to daemon.
+    Requests(Vec<Request>),
+    /// If `true`, it essentially unbinds every key.
     SetPause(bool),
-    /// Process wants to subscribe to a key.
-    Subscribe,
+    /// Set bindings for the client.
+    SetBindings(Bindings),
     /// Close the connection.
     Close,
 }

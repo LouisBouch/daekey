@@ -1,17 +1,11 @@
 mod connection;
-
-
-#[doc(hidden)]
-pub mod ipc;
-#[doc(hidden)]
-pub mod constants;
-#[doc(hidden)]
-pub mod format_error;
+mod thread_pool;
+mod daemon_handle;
+mod action;
 
 // User facing modules.
-pub mod keys;
+//pub mod keys;
+//pub mod bindings;
+//pub mod binding;
 pub mod client;
-pub mod daemon_handle;
-pub mod binding;
-pub mod bindings;
-mod thread_pool;
+pub mod builder;

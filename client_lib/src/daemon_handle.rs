@@ -5,22 +5,22 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::{format_error::{ErrorContext, print_err}, ipc::{message::FromProcess, channel::tx::Tx}};
+use crate::{format_error::{ErrorContext, print_err}, ipc::{message::FromClient, channel::tx::Tx}};
 
 /// Used as an API for the app's functionalities.
 pub struct DaemonHandle {
     /// Outgoing connection to the daemon.
-    daemon_connection: Tx<FromProcess>,
+    daemon_connection: Tx<FromClient>,
 }
 impl DaemonHandle {
-    pub(crate) fn new(daemon_connection: Tx<FromProcess>) -> Self {
+    pub(crate) fn new(daemon_connection: Tx<FromClient>) -> Self {
         DaemonHandle {
             daemon_connection: daemon_connection,
         }
     }
     /// Closes the connection with the daemon.
     pub fn exit(&mut self) {
-        if let Err(e) = self.daemon_connection.send(&FromProcess::Close) {
+        if let Err(e) = self.daemon_connection.send(&FromClient::Close) {
             let ctx = "failed to request disconnection";
             print_err(&ErrorContext::new(ctx.into(), &e));
         }
