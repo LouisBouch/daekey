@@ -4,15 +4,15 @@ use std::{
     thread::JoinHandle,
 };
 
-use client_lib::{
-    binding::BindingPolicy,
-    keys::{KeyCode, modded_key::ModdedKey, modifiers::Modifiers},
+use common_lib::{
+    bindings::BindingPolicy,
+    input::{KeyCode, Modifiers},
 };
 use crossbeam_channel::{Receiver, SendError, Sender};
 
 use crate::{client_gateway::FromLogicalDevice, device_interface::uinput::UInput};
 
-use client_lib::ipc::message::{FromClient, Request};
+use common_lib::ipc::message::{FromClient, Request};
 
 /// A message to the logical device from a physical one.
 #[derive(Clone, Debug)]

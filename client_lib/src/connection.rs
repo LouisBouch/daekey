@@ -17,7 +17,7 @@ use nix::{
     sys::socket::{ControlMessageOwned, MsgFlags, recvmsg},
 };
 
-use crate::constants;
+use common_lib::constants;
 
 const SOCKET_OWNER_NAME: &str = "daekey";
 const CONNECTION_TIMEOUT_MILLIS: u64 = 1000;

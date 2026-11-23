@@ -5,8 +5,8 @@ use std::thread::JoinHandle;
 
 use crate::{client_gateway::ClientListenerError, logical_device::router::SimulatedTx};
 
-use client_lib::ipc::channel::rx::Rx;
-use client_lib::ipc::message::FromClient;
+use common_lib::ipc::channel::rx::Rx;
+use common_lib::ipc::message::FromClient;
 
 /// Notifies router when dropped.
 struct DropGuard {
@@ -69,9 +69,9 @@ impl ClientListener {
     /// Handles a message received from the process.
     pub fn handle_message(&mut self, msg: FromClient) -> ControlFlow<()> {
         match msg {
-            FromClient::SetSubscriptionList(_) => todo!(),
+            FromClient::SetBindings(_) => todo!(),
             FromClient::Close => ControlFlow::Break(()),
-            FromClient::Request(_) => todo!(),
+            FromClient::Requests(_) => todo!(),
             FromClient::SetPause(_) => todo!(),
         }
     }

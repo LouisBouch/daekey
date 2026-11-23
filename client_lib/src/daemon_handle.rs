@@ -5,7 +5,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::{format_error::{ErrorContext, print_err}, ipc::{message::FromClient, channel::tx::Tx}};
+use common_lib::format_error::{ErrorContext, print_err};
+use common_lib::ipc::{message::FromClient, channel::tx::Tx};
 
 /// Used as an API for the app's functionalities.
 pub struct DaemonHandle {

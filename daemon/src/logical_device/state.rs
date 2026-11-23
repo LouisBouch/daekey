@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use client_lib::keys::{self, KeyCode};
+use common_lib::input::KeyCode;
 
 use crate::logical_device::router::{PhysicalId, SimulatedId};
 
@@ -61,9 +61,9 @@ pub(super) struct LogicalDeviceState {
     // /// The number of devices holding each key.
     /// key_holds: HashMap<keys::KeyCode, KeyHolds>,
     /// Which keys are being held by which physical device.
-    physical_device_keys: HashMap<PhysicalId, HashSet<keys::KeyCode>>,
+    physical_device_keys: HashMap<PhysicalId, HashSet<KeyCode>>,
     /// Which keys are being held by which simulated device.
-    simulated_device_keys: HashMap<SimulatedId, HashSet<keys::KeyCode>>,
+    simulated_device_keys: HashMap<SimulatedId, HashSet<KeyCode>>,
 }
 impl LogicalDeviceState {
     /// Press a key on a simulated device.

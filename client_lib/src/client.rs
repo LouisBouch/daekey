@@ -9,15 +9,21 @@ use std::{
 };
 
 use common_lib::ipc::{
-    channel::{rx::Rx, tx::Tx},
-    message::FromDaemon,
+    channel::{
+        rx::Rx,
+        tx::{SendError, SerializeError, Tx},
+    },
+    message::{FromClient, FromDaemon},
 };
 
-use crate::{builder::{BindingsBuildError, BindingsBuilder}, thread_pool::ThreadPoolBuildError};
 use crate::{
     action::Action,
     connection::{ConnectionError, socket_from_daemon},
     daemon_handle::DaemonHandle,
+};
+use crate::{
+    builder::{BindingsBuildError, BindingsBuilder, PreparedBindings},
+    thread_pool::ThreadPoolBuildError,
 };
 
 #[derive(Debug)]
@@ -29,14 +35,16 @@ pub enum InstantiationError {
     DaemonConnection(ConnectionError),
     /// Failed to duplicate the daemon's socket.
     SocketCloning(io::Error),
-    /// Failed to build bindings.
-    Bindings(BindingsBuildError),
+    /// Failed to send bindings.
+    BindingSend(SendError),
+    /// Failed to serialize binings.
+    BindingSerialization(SerializeError),
 }
 impl Display for InstantiationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             InstantiationError::ThreadPool(_) => {
-                write!(f, "failed to create thread pool")
+                write!(f, "failed to create the thread pools")
             }
             InstantiationError::DaemonConnection(_) => {
                 write!(f, "failed to connect to the daemon")
@@ -44,8 +52,14 @@ impl Display for InstantiationError {
             InstantiationError::SocketCloning(_) => {
                 write!(f, "failed to clone the daemon's socket")
             }
-            InstantiationError::Bindings(_) => {
-                write!(f, "failed to build the bindings")
+            InstantiationError::BindingSend(_) => {
+                write!(f, "failed to send the bindings to the daemon")
+            }
+            InstantiationError::BindingSerialization(_) => {
+                write!(
+                    f,
+                    "failed to serialize the bindings before sending them over the socket"
+                )
             }
         }
     }
@@ -58,7 +72,8 @@ impl Error for InstantiationError {
             }
             InstantiationError::DaemonConnection(connection_error) => Some(connection_error),
             InstantiationError::SocketCloning(error) => Some(error),
-            InstantiationError::Bindings(bindings_build_error) => Some(bindings_build_error),
+            InstantiationError::BindingSend(send_error) => Some(send_error),
+            InstantiationError::BindingSerialization(ser_error) => Some(ser_error),
         }
     }
 }
@@ -90,40 +105,36 @@ pub struct Client {
     /// The connection that will receive messages from the daemon.
     daemon_rx: Rx<FromDaemon>,
     /// The list of [`Action`] the client can execute.
-    bindings: Vec<Action>,
+    actions: Vec<Action>,
 }
 impl Client {
     /// Creates a new [`Client`] and connects to the daemon.
     ///
     /// # Aguments
     ///
-    /// * `max_threads` - Maximum amount of threads that can run closures at the same time.
-    pub fn instantiate(max_threads: usize) -> Result<Self, InstantiationError> {
+    /// * `bindings` - Prepared bindings with associated actions.
+    pub fn connect(bindings: PreparedBindings) -> Result<Self, InstantiationError> {
         let daemon_socket = socket_from_daemon().map_err(InstantiationError::DaemonConnection)?;
-        let thread_pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(max_threads)
-            .build()
-            .map_err(InstantiationError::ThreadPool)?;
-        let handles = Arc::new(Mutex::new(Vec::new()));
         let daemon_rx = Rx::new(
             daemon_socket
                 .try_clone()
                 .map_err(InstantiationError::SocketCloning)?,
         );
-        let daemon_tx = Tx::new(daemon_socket);
-        for _ in 0..max_threads {
-            handles
-                .lock()
-                .expect("previous lock should not have panicked")
-                .push(DaemonHandle::new(daemon_tx.clone()));
-        }
-        Ok(Self {
-            thread_pool,
-            handles,
-            daemon_rx,
-            bindings_active: true,
-            bindings: HashMap::new(),
-        })
+
+        let mut daemon_tx = Tx::new(daemon_socket);
+        let ctx_maker = || DaemonHandle::new(daemon_tx.clone());
+
+        let (bindings, prepared_actions) = bindings.deconstruct();
+        let actions = prepared_actions
+            .into_actions(ctx_maker)
+            .map_err(InstantiationError::ThreadPool)?;
+
+        daemon_tx
+            .send(&FromClient::SetBindings(bindings))
+            .map_err(InstantiationError::BindingSend)?
+            .map_err(InstantiationError::BindingSerialization)?;
+
+        Ok(Self { daemon_rx, actions })
     }
     /// Start the client.
     pub fn run(&mut self) -> Result<(), RunError> {
@@ -146,6 +157,5 @@ impl Client {
             }
         }
     }
-    pub fn add_binding(&mut self, modded_key: &ModdedKey, binding: &Edges) {}
 }
 // TODO: Impl remaining functions.

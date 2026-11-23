@@ -52,6 +52,18 @@ impl Display for BindingsBuildError {
 }
 impl Error for BindingsBuildError {}
 
+/// Bindings built by the builder with prepared actions awaiting initialization.
+pub struct PreparedBindings {
+    /// Built bindings, ready for the daemon.
+    bindings: Bindings,
+    /// Defined actions, ready to be built for the client.
+    pending_actions: PendingActions,
+}
+impl PreparedBindings {
+    pub(crate) fn deconstruct(self) -> (Bindings, PendingActions) {
+        (self.bindings, self.pending_actions)
+    }
+}
 // TODO: make client take a builder when instantiated.
 /// Builder for the bindings.
 pub struct BindingsBuilder {
@@ -67,7 +79,7 @@ impl BindingsBuilder {
             max_threads_per_binding: DEFAULT_MAX_THREADS_PER_BINDING,
         }
     }
-    pub fn set_max_threads_per_binding(&mut self, max_threads: usize) {
+    pub fn max_threads_per_binding(&mut self, max_threads: usize) {
         self.max_threads_per_binding = max_threads;
     }
     /// Create a new binding and return a mutable reference to it.
@@ -75,7 +87,7 @@ impl BindingsBuilder {
         self.pending.push_mut(PendingBinding::new(key, modifiers))
     }
     /// Turn the pending bindings into the key bindings.
-    pub fn build(self) -> Result<(Bindings, PreparedActions), BindingsBuildError> {
+    pub fn build(self) -> Result<PreparedBindings, BindingsBuildError> {
         let mut bindings = Bindings::new();
         let mut actions = Vec::new();
 
@@ -115,17 +127,17 @@ impl BindingsBuilder {
         if !collisions.is_empty() {
             return Err(BindingsBuildError::ModifierCollision(collisions));
         }
-        Ok((
+        Ok(PreparedBindings {
             bindings,
-            PreparedActions {
+            pending_actions: PendingActions {
                 pending_actions: actions,
                 default_max_threads: self.max_threads_per_binding,
             },
-        ))
+        })
     }
 }
 /// Store information about a future binding.
-pub struct PendingBinding {
+struct PendingBinding {
     key: KeyCode,
     modifiers: ModifierMatch,
     policy: BindingPolicy,
@@ -186,7 +198,7 @@ impl PendingRunnable {
     }
 }
 /// An action taken by the [`Client`].
-pub enum PendingAction {
+enum PendingAction {
     /// Custom closure defined by user.
     Custom(PendingRunnable),
     /// Action that can be executed directly on the thread.
@@ -194,14 +206,14 @@ pub enum PendingAction {
 }
 /// List of [`PendingAction`] with default amoutn of max threads if not already decided in the
 /// pending action.
-pub struct PreparedActions {
+pub(crate) struct PendingActions {
     /// Default amoutn of threads that will be given to a [`Runnable`] if it isnt already decided in
     /// the [`PendingRunnable`].
     default_max_threads: usize,
     /// List of [`PendingAction`] defined by user.
     pending_actions: Vec<PendingAction>,
 }
-impl PreparedActions {
+impl PendingActions {
     /// Turn the list of pending actions into actions the client can use.
     pub fn into_actions(
         self,
@@ -228,7 +240,7 @@ impl PreparedActions {
 }
 
 /// Implementing this trait will allow conversion to a [`PendingAction`].
-pub trait IntoPendingAction {
+trait IntoPendingAction {
     /// Converts [`self`] to a [`PendingAction`].
     fn into_pending_action(self) -> PendingAction;
 }
