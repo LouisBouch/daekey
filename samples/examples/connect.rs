@@ -1,6 +1,7 @@
-use client_lib::client::Client;
+use client_lib::{builder::BindingsBuilder, client::Client};
 
 fn main() {
-    let mut client = Client::instantiate(5).unwrap();
+    let bindings = BindingsBuilder::new();
+    let mut client = Client::connect(bindings.build().unwrap()).unwrap();
     client.run().unwrap();
 }

@@ -5,7 +5,7 @@ use std::{
 };
 
 use common_lib::{
-    bindings::BindingPolicy,
+    bindings::{ActionId, BindingPolicy, Bindings},
     input::{KeyCode, Modifiers},
 };
 use crossbeam_channel::{Receiver, SendError, Sender};
@@ -118,66 +118,12 @@ pub type PhysicalTx = Tx<PhysicalId, FromPhysicalDevice>;
 /// Creates physical senders to the logical device with increasing ids.
 pub type PhysicalTxMaker = TxMaker<PhysicalId, FromPhysicalDevice>;
 
-/// The state of the key when it was first pressed.
-#[derive(PartialEq, Eq, Clone)]
-struct Latch {
-    /// The [`BindingPolicy`] of the first press.
+/// What to execute when a key is released.
+struct OnRelease {
+    /// Whether to forward the key to the compositor or swallow it.
     policy: BindingPolicy,
-    /// The [`Modifiers`] of the first press.
-    modifiers: Modifiers,
-    /// Clients that have a release binding on the corresponding [`ModdedKey`].
-    /// This is to ensure clients who just started the script won't
-    /// receive an up binding if they were not there for the down binding.
-    release_targets: Vec<SimulatedId>,
-}
-/// Related to the motion of the key, either press or release.
-struct Edge {
-    /// If true, the key ignores the pause state of the client when the edge triggers.
-    active_when_paused: bool,
-}
-impl Edge {
-    /// If true, the edge is considered active.
-    ///
-    /// # Arguments
-    ///
-    /// * `paused` - True if the client requested a binding pause.
-    fn active(&self, paused: bool) -> bool {
-        !paused || self.active_when_paused
-    }
-}
-/// Info related the the subcription of a client to a [`ModdedKey`].
-struct Subscription {
-    /// Whether to forard or swallow the key on activation.
-    policy: BindingPolicy,
-    /// Some if press is bound, None otherwise.
-    press: Option<Edge>,
-    /// Some if release is bound, None otherwise.
-    release: Option<Edge>,
-}
-impl Subscription {
-    /// If returns true, the press binding should be executed.
-    ///
-    /// # Arguments
-    ///
-    /// * `paused` - True if the client requested a binding pause.
-    fn run_press_binding(&self, paused: bool) -> bool {
-        self.press.as_ref().is_some_and(|e| e.active(paused))
-    }
-    /// If returns true, the release binding should be executed.
-    ///
-    /// # Arguments
-    ///
-    /// * `paused` - True if the client requested a binding pause.
-    fn run_release_binding(&self, paused: bool) -> bool {
-        self.release.as_ref().is_some_and(|e| e.active(paused))
-    }
-    /// Returns true if the key should be swallowed because of the subscription.
-    fn swallow(&self, paused: bool) -> bool {
-        self.policy == BindingPolicy::Swallow
-            && (!paused
-                || self.press.as_ref().is_some_and(|e| e.active_when_paused)
-                || self.release.as_ref().is_some_and(|e| e.active_when_paused))
-    }
+    /// What [`ActionId`] need to be sent to what client with associated [`SimulatedId`].
+    actions: HashMap<SimulatedId, Vec<ActionId>>,
 }
 
 /// Contents needed for the logical device runner to track and communicate with the logical device.
@@ -196,16 +142,17 @@ pub struct LogicalDevice {
     simulated_rx: Receiver<WrappedSimulatedMessage>,
     /// Receiver for physical device requests.
     physical_rx: Receiver<WrappedPhysicalMessage>,
-    /// Sender for the gateway.
+    /// Sender to the gateway.
     gateway_tx: Sender<FromLogicalDevice>,
 
     /// List of subscribed clients for each [`ModdedKey`].
-    client_subscription_map: HashMap<ModdedKey, HashMap<SimulatedId, Subscription>>,
-    /// The value for a client is true if it is currently paused.
-    /// If the id is not in the map, it means the client associated with the [`SimulatedId`] is dead.
-    client_is_paused: HashMap<SimulatedId, bool>,
-    /// Stores info about the state of the key when it was pressed.
-    key_latches: HashMap<KeyCode, Latch>,
+    // TODO: Maybe turn it into a single [`Bindings`] map that returns a list of [`ActionId`] and
+    // associated [`SimulatedId`] on match.
+    client_bindings: HashMap<SimulatedId, Bindings>,
+    /// Set of clients that are currently paused.
+    paused_clients: HashSet<SimulatedId>,
+    /// Stores info about what to do when key is released.
+    release_map: HashMap<KeyCode, OnRelease>,
 
     /// Used to create virtual devices and send inputs to the compositor.
     uinput: UInput,
