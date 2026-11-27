@@ -67,4 +67,3 @@ fn run() -> Result<(), Box<dyn Error + 'static>> {
 }
 
 // TODO: For all errors, use named struct instead of tuple?
-// TODO: Go around all eprintln and replace them with custom errors when necessary. also check formatting.

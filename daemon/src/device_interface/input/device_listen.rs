@@ -1,13 +1,19 @@
 //! Logic to listen to a physical device.
 
-use std::{collections::HashSet, error::Error, fmt::Display, io, path::PathBuf, thread::JoinHandle};
+use std::{
+    collections::HashSet, error::Error, fmt::Display, io, path::PathBuf, thread::JoinHandle,
+};
 
 use evdev::{Device, EventSummary, InputEvent, SynchronizationCode};
 use nix::libc;
 
 use crate::logical_device::router::{FromPhysicalDevice, PhysicalTx};
 
-use common_lib::{ipc::message::Request, input::KeyState};
+use common_lib::{
+    format_error::{ErrorContext, print_err},
+    input::KeyState,
+    ipc::message::Request,
+};
 
 const MAX_SUCCESSIVE_ERRORS: u32 = 20;
 
@@ -116,7 +122,7 @@ impl DeviceListen {
                             return Ok(());
                         }
                         self.successive_err += 1;
-                        eprintln!("device error: {e}");
+                        print_err(&ErrorContext::new("device error".into(), &e));
                         if self.successive_err >= MAX_SUCCESSIVE_ERRORS {
                             return Err(DeviceError::FetchEvents { last_err: e });
                         }
