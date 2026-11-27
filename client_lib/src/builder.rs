@@ -3,7 +3,7 @@
 use std::{
     collections::{HashMap, HashSet},
     error::Error,
-    fmt::Display,
+    fmt::{Debug, Display},
     sync::Arc,
 };
 
@@ -43,16 +43,21 @@ impl Display for BindingsBuildError {
                 // TODO: implement better display for key and modifiers?
                 write!(
                     f,
-                    "failed to build bindings, key: {key:?} with modifiers: {modifiers:?} was bound twice"
+                    "failed to build bindings, key: '{key:?}' with modifiers: '{modifiers:?}' was bound twice"
                 )
             }
-            BindingsBuildError::ModifierCollision(hash_map) => todo!(),
+            BindingsBuildError::ModifierCollision(hash_map) => {
+                // bound keys allow for ambiguous matching of bindings .. to resolve all current and future
+                // ambiguities, 
+                todo!()
+            },
         }
     }
 }
 impl Error for BindingsBuildError {}
 
 /// Bindings built by the builder with prepared actions awaiting initialization.
+#[derive(Debug)]
 pub struct PreparedBindings {
     /// Built bindings, ready for the daemon.
     bindings: Bindings,
@@ -64,7 +69,6 @@ impl PreparedBindings {
         (self.bindings, self.pending_actions)
     }
 }
-// TODO: make client take a builder when instantiated.
 /// Builder for the bindings.
 pub struct BindingsBuilder {
     /// Requested bindings.
@@ -137,7 +141,7 @@ impl BindingsBuilder {
     }
 }
 /// Store information about a future binding.
-struct PendingBinding {
+pub struct PendingBinding {
     key: KeyCode,
     modifiers: ModifierMatch,
     policy: BindingPolicy,
@@ -185,6 +189,14 @@ pub struct PendingRunnable {
     /// it and will be configured by the builder's default.
     max_threads: Option<usize>,
 }
+impl Debug for PendingRunnable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PendingRunnable")
+            .field("closure", &"...")
+            .field("max_threads", &self.max_threads)
+            .finish()
+    }
+}
 impl PendingRunnable {
     pub fn new(closure: impl Fn(DaemonHandle) + Send + Sync + 'static) -> Self {
         PendingRunnable {
@@ -192,12 +204,13 @@ impl PendingRunnable {
             max_threads: None,
         }
     }
-    pub fn max_threads(&mut self, max_threads: usize) -> &mut Self {
+    pub fn max_threads(mut self, max_threads: usize) -> Self {
         self.max_threads = Some(max_threads);
         self
     }
 }
 /// An action taken by the [`Client`].
+#[derive(Debug)]
 enum PendingAction {
     /// Custom closure defined by user.
     Custom(PendingRunnable),
@@ -206,6 +219,7 @@ enum PendingAction {
 }
 /// List of [`PendingAction`] with default amoutn of max threads if not already decided in the
 /// pending action.
+#[derive(Debug)]
 pub(crate) struct PendingActions {
     /// Default amoutn of threads that will be given to a [`Runnable`] if it isnt already decided in
     /// the [`PendingRunnable`].
@@ -260,5 +274,85 @@ where
 {
     fn into_pending_action(self) -> PendingAction {
         PendingRunnable::new(self).into_pending_action()
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn no_bindings() {
+        let b = BindingsBuilder::new();
+        let fr = b.build();
+        assert!(fr.is_ok());
+        let (bindings, actions) = fr.unwrap().deconstruct();
+        assert_eq!(actions.pending_actions.len(), 0);
+        assert_eq!(bindings.nb_bindings(), 0);
+    }
+    #[test]
+    fn empty_bindings() {
+        let mut b = BindingsBuilder::new();
+        b.bind(KeyCode::KEY_A, ModifierMatch::Exact(Modifiers::RIGHT_SHIFT));
+        b.bind(
+            KeyCode::KEY_A,
+            ModifierMatch::AtLeast(Modifiers::RIGHT_SHIFT),
+        );
+        b.bind(KeyCode::KEY_B, ModifierMatch::Exact(Modifiers::RIGHT_SHIFT));
+        let fr = b.build();
+        assert!(fr.is_ok());
+        let (bindings, actions) = fr.unwrap().deconstruct();
+        assert_eq!(bindings.nb_bindings(), 3);
+        assert_eq!(actions.pending_actions.len(), 0);
+    }
+    #[test]
+    fn built_bindings() {
+        let mut b = BindingsBuilder::new();
+        b.bind(KeyCode::KEY_A, ModifierMatch::Exact(Modifiers::RIGHT_SHIFT))
+            .on_press(|_| ())
+            .on_release(PendingRunnable::new(|_| ()).max_threads(5));
+        b.bind(
+            KeyCode::KEY_A,
+            ModifierMatch::AtLeast(Modifiers::RIGHT_SHIFT),
+        )
+        .on_press(BuiltinAction::Close)
+        .forward()
+        .active_when_paused();
+        b.bind(KeyCode::KEY_B, ModifierMatch::Exact(Modifiers::RIGHT_SHIFT));
+        let fr = b.build();
+        assert!(fr.is_ok());
+        let (bindings, actions) = fr.unwrap().deconstruct();
+        assert_eq!(bindings.nb_bindings(), 3);
+        assert_eq!(actions.pending_actions.len(), 3);
+    }
+    #[test]
+    fn duplicate_bindings() {
+        let mut b = BindingsBuilder::new();
+        b.bind(KeyCode::KEY_A, ModifierMatch::Exact(Modifiers::RIGHT_SHIFT));
+        b.bind(
+            KeyCode::KEY_A,
+            ModifierMatch::AtLeast(Modifiers::RIGHT_SHIFT),
+        );
+        b.bind(KeyCode::KEY_B, ModifierMatch::Exact(Modifiers::RIGHT_SHIFT));
+        b.bind(KeyCode::KEY_B, ModifierMatch::Exact(Modifiers::RIGHT_SHIFT));
+        b.bind(KeyCode::KEY_A, ModifierMatch::Exact(Modifiers::RIGHT_SHIFT));
+        b.bind(KeyCode::KEY_A, ModifierMatch::Exact(Modifiers::RIGHT_SHIFT));
+        let fr = b.build();
+        assert!(matches!(
+            fr,
+            Err(BindingsBuildError::DuplicateBinding { .. })
+        ));
+    }
+    #[test]
+    fn simple_colliding_bindings() {
+        let mut b = BindingsBuilder::new();
+        b.bind(KeyCode::KEY_A, ModifierMatch::AtLeast(Modifiers::RIGHT_SHIFT));
+        b.bind(KeyCode::KEY_A, ModifierMatch::AtLeast(Modifiers::LEFT_SHIFT));
+        let fr = b.build();
+        // println!("{}", fr.as_ref().unwrap_err());
+        dbg!(fr);
+        panic!();
+        assert!(matches!(
+            fr,
+            Err(BindingsBuildError::ModifierCollision { .. })
+        ));
     }
 }

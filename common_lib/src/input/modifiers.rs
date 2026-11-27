@@ -35,7 +35,7 @@ impl Modifiers {
     ///
     /// # Example
     /// ```rust
-    /// use library::keys::modifiers::Modifiers;
+    /// use common_lib::input::Modifiers;
     ///
     /// let m = Modifiers::LEFT_SHIFT.union(Modifiers::LEFT_CTRL).subtract(Modifiers::LEFT_SHIFT);
     /// assert_eq!(m, Modifiers::LEFT_CTRL);

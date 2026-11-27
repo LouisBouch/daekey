@@ -6,4 +6,3 @@ mod action;
 // User facing modules.
 pub mod client;
 pub mod builder;
-

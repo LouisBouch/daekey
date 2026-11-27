@@ -30,6 +30,7 @@ impl Default for BindingPolicy {
     }
 }
 /// A struct that wraps what a binding needs.
+#[derive(Debug)]
 pub struct Binding {
     /// Key for the binding.
     pub key: KeyCode,
@@ -50,6 +51,13 @@ pub struct Bindings(HashMap<KeyCode, ModifierMap<Edges>>);
 impl Bindings {
     pub fn new() -> Self {
         Self(HashMap::new())
+    }
+    pub fn nb_bindings(&self) -> usize {
+        let mut nb_bindings = 0;
+        for mod_map in self.0.values() {
+            nb_bindings += mod_map.exact.len() + mod_map.at_least.bindings.len();
+        }
+        nb_bindings
     }
     /// Insert binding into the struct.
     ///
@@ -88,7 +96,7 @@ impl Bindings {
         })
     }
     /// Collisions between at-least modifier bindings. Each map key represents a combination of
-    /// modifiers that can be pressed when the binding triggers for the given keycode.
+    /// modifiers with key that could be pressed.
     /// The associated value describes at-least modifier bindings that conflict with the pressed modifiers.
     pub fn collisions(&self) -> HashMap<(KeyCode, Modifiers), HashSet<Modifiers>> {
         let mut map = HashMap::new();
@@ -130,9 +138,11 @@ impl<T> ModifierMap<T> {
             ModifierMatch::Exact(modifiers) => self.exact.contains_key(modifiers),
         }
     }
+    // TODO: NEXT Move entire collisions logic here instead of having some in the AtLeastBindings.
+    // Take into account exact bindings directly instead of after.
     /// Collisions between at-least modifier bindings. Each map key represents a combination of
-    /// modifiers that can be pressed when the binding triggers. The associated value describes
-    /// at-least modifier bindings that conflict with the pressed modifiers.
+    /// modifiers that could be pressed with the corresponding keycode.
+    /// The associated value describes at-least modifier bindings that conflict with the pressed modifiers.
     pub fn collisions(&self) -> HashMap<Modifiers, HashSet<Modifiers>> {
         let mut collisions = self.at_least.collisions();
         // Pressed binding's modifiers will not conflict if exact modifier binding exists.
@@ -221,18 +231,13 @@ impl<T> AtLeastBindings<T> {
         }
         edges_list
     }
-    /// Obtain a map of [`Modifiers`] where the key represents modifiers that, when pressed,
-    /// result in colliding [`Modifiers`]. A collision here represents ambiguity in the binding
-    /// resolution.
+    // TODO: NEXT Remove collisions from here.
+    /// Collisions between at-least modifier bindings. Each map key represents a combination of
+    /// modifiers that could be pressed with the corresponding keycode.
+    /// The associated value describes at-least modifier bindings that conflict with the pressed modifiers.
     ///
-    /// Essentially, each key is a binding that should be implemented to avoid ambiguity.
-    ///
-    /// Note that this function returns collisions that aren't currently bound but that should be to
-    /// prevent other collisions. For examplle, if Shift, Ctrl and Alt are bound, it will return
-    /// that Shift+Ctrl+Alt collides with Shift+Ctrl, Ctrl+Alt and Shift+Alt even though they are
-    /// not bound yet. This is because Shift+Ctrl, Ctrl+Alt and Shift+Alt, SHOULD be bound to
-    /// avoid the collision between Shift, Ctrl and Alt. It returns these anticipatory collisions to
-    /// prevent you from having to run the algorithm multiple times.
+    /// For examplle, if Shift, Ctrl and Alt are bound, it will return
+    /// that Shift+Ctrl collides withs shift and ctrl, Ctrl+Alt collides with Cltr and Alt and that Shift+Alt collide with Shift and Alt.
     fn collisions(&self) -> HashMap<Modifiers, HashSet<Modifiers>> {
         let mut collisions = HashMap::new();
         #[derive(Debug, PartialEq, Eq)]
@@ -258,7 +263,6 @@ impl<T> AtLeastBindings<T> {
         let mut mod_layer_index = 0;
         // for mod_layer_index in 0..modifier_layers.len() {
         while mod_layer_index < modifier_layers.len() {
-            mod_layer_index += 1;
             let mod_layer = std::mem::take(&mut modifier_layers[mod_layer_index]);
             let len = mod_layer.len();
             for (i, (AtLeastKey(mod_i), _)) in
@@ -281,6 +285,7 @@ impl<T> AtLeastBindings<T> {
                     }
                 }
             }
+            mod_layer_index += 1;
         }
         collisions
     }
