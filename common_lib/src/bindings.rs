@@ -98,6 +98,12 @@ impl Bindings {
     /// Collisions between at-least modifier bindings. Each map key represents a combination of
     /// modifiers with key that could be pressed.
     /// The associated value describes at-least modifier bindings that conflict with the pressed modifiers.
+    /// Also contains collisions that are not yet present but that will be once the previous
+    /// collisions are handled.
+    ///
+    /// For examplle, if Shift, Ctrl and Alt are bound, it will return
+    /// that Shift+Ctrl collides with shift and ctrl, Ctrl+Alt collides with Ctrl and Alt and that Shift+Alt collide with Shift and Alt.
+    /// It will also include Shift+Ctrl+Alt because without it,
     pub fn collisions(&self) -> HashMap<(KeyCode, Modifiers), HashSet<Modifiers>> {
         let mut map = HashMap::new();
         for (keycode, modifiers_map) in self.0.iter() {
@@ -112,6 +118,11 @@ impl Bindings {
 //TODO: Maybe make moudle from ModifierMap<T> with its content (not Edges cause its not its content
 //before someone sets T to be Edges)
 
+#[derive(Debug, PartialEq, Eq, Clone)]
+enum BindState {
+    Bound,
+    ToBind,
+}
 /// Map of at-least and exact modifiers and their associated value.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 struct ModifierMap<T> {
@@ -138,18 +149,110 @@ impl<T> ModifierMap<T> {
             ModifierMatch::Exact(modifiers) => self.exact.contains_key(modifiers),
         }
     }
-    // TODO: NEXT Move entire collisions logic here instead of having some in the AtLeastBindings.
-    // Take into account exact bindings directly instead of after.
     /// Collisions between at-least modifier bindings. Each map key represents a combination of
-    /// modifiers that could be pressed with the corresponding keycode.
+    /// modifiers with key that could be pressed.
     /// The associated value describes at-least modifier bindings that conflict with the pressed modifiers.
+    /// Also contains collisions that are not yet present but that will be once the previous
+    /// collisions are handled.
+    ///
+    /// For examplle, if Shift, Ctrl and Alt are bound, it will return
+    /// that Shift+Ctrl collides with shift and ctrl, Ctrl+Alt collides with Ctrl and Alt and that Shift+Alt collide with Shift and Alt.
+    /// It will also include Shift+Ctrl+Alt because without it,
     pub fn collisions(&self) -> HashMap<Modifiers, HashSet<Modifiers>> {
-        let mut collisions = self.at_least.collisions();
-        // Pressed binding's modifiers will not conflict if exact modifier binding exists.
-        for key in self.exact.keys() {
-            collisions.remove(key);
+        let mut collisions: HashMap<Modifiers, HashSet<Modifiers>> = HashMap::new();
+        use BindState::{Bound, ToBind};
+        let mut at_least_mod_layers: Vec<BTreeMap<AtLeastKey, BindState>> = Vec::new();
+        // Fill array with arrays of modifiers with the same modifier count.
+        for (&AtLeastKey(modifiers), _) in self.at_least.bindings.iter() {
+            let count = modifiers.modifier_count() as usize;
+            // Cannot conflict with no modifiers.
+            if count == 0 {
+                continue;
+            }
+            if at_least_mod_layers.len() < count {
+                at_least_mod_layers.resize(count, BTreeMap::new());
+            }
+            at_least_mod_layers[count as usize - 1].insert(AtLeastKey(modifiers), Bound);
         }
+        // Build the collisions map between AtLeast bindings.
+        let mut mod_layer_index = 0;
+        while mod_layer_index < at_least_mod_layers.len() {
+            let mod_layer = std::mem::take(&mut at_least_mod_layers[mod_layer_index]);
+            let len = mod_layer.len();
+            for (i, (AtLeastKey(mod_i), _)) in
+                mod_layer.iter().take(len.saturating_sub(1)).enumerate()
+            {
+                let start = i + 1;
+                for (AtLeastKey(mod_o), _) in mod_layer.iter().skip(start).take(len - start) {
+                    let union = *mod_i | *mod_o;
+                    let union_mod_count = union.modifier_count() as usize;
+                    if at_least_mod_layers.len() < union_mod_count {
+                        at_least_mod_layers.resize(union_mod_count, BTreeMap::new());
+                    }
+                    if Self::union_needs_binding(*mod_i, *mod_o, &at_least_mod_layers, &self.exact)
+                    {
+                        let layer = &mut at_least_mod_layers[union_mod_count - 1];
+                        let entry = layer.entry(AtLeastKey(union)).or_insert(ToBind);
+                        assert_eq!(*entry, ToBind, "bound union {union:?} should be covered");
+                        let perm_collisions = collisions.entry(union).or_default();
+                        perm_collisions.insert(*mod_i);
+                        perm_collisions.insert(*mod_o);
+                    }
+                }
+            }
+            mod_layer_index += 1;
+        }
+
         collisions
+    }
+    /// Checks whether the given exact and AtLeast modifiers prevent collisions for a specific modifiers union.
+    /// If they do not prevent collisions, return `true`, if they do prevent collisions return `false`.
+    ///
+    /// Note that the modifiers must have the same count of individual modifiers.
+    fn union_needs_binding(
+        a: Modifiers,
+        b: Modifiers,
+        at_least: &[BTreeMap<AtLeastKey, BindState>],
+        exact_bindings: &HashMap<Modifiers, T>,
+    ) -> bool {
+        let union = a | b;
+        let ind_count = a.modifier_count() as usize;
+
+        // Checks if a more specific AtLeast binding already covers the modifiers.
+        let has_at_least_cover = |modi: Modifiers| {
+            for tree in at_least
+                .iter()
+                .skip(ind_count)
+                .take(modi.modifier_count() as usize - ind_count)
+            {
+                if tree.iter().any(|(key, state)| {
+                    modi.contains(key.0) && !(key.0 == union && *state == BindState::ToBind)
+                }) {
+                    return true;
+                }
+            }
+            false
+        };
+        let mut traversal = vec![union];
+        let mut seen = HashSet::new();
+        while let Some(modi) = traversal.pop() {
+            if has_at_least_cover(modi) {
+                continue;
+            }
+            if exact_bindings.contains_key(&modi) {
+                for single_modifier in Modifiers::ALL_LIST {
+                    if !modi.contains(single_modifier) {
+                        let next = modi | single_modifier;
+                        if seen.insert(next) {
+                            traversal.push(next);
+                        }
+                    }
+                }
+            } else {
+                return true;
+            }
+        }
+        false
     }
 }
 impl<T> Default for ModifierMap<T> {
@@ -231,63 +334,14 @@ impl<T> AtLeastBindings<T> {
         }
         edges_list
     }
-    // TODO: NEXT Remove collisions from here.
-    /// Collisions between at-least modifier bindings. Each map key represents a combination of
-    /// modifiers that could be pressed with the corresponding keycode.
-    /// The associated value describes at-least modifier bindings that conflict with the pressed modifiers.
-    ///
-    /// For examplle, if Shift, Ctrl and Alt are bound, it will return
-    /// that Shift+Ctrl collides withs shift and ctrl, Ctrl+Alt collides with Cltr and Alt and that Shift+Alt collide with Shift and Alt.
-    fn collisions(&self) -> HashMap<Modifiers, HashSet<Modifiers>> {
-        let mut collisions = HashMap::new();
-        #[derive(Debug, PartialEq, Eq)]
-        enum BindState {
-            Bound,
-            NotBound,
-        }
-        use BindState::{Bound, NotBound};
-        let mut modifier_layers: Vec<BTreeMap<AtLeastKey, BindState>> = Vec::new();
-        // Fill array with arrays of modifiers with the same modifier count.
-        for (&AtLeastKey(modifiers), _) in self.bindings.iter() {
-            let count = modifiers.modifier_count();
-            // Cannot conflict with no modifiers.
-            if count == 0 {
-                continue;
+    /// Get the first binding that matches, prioritizing bindings with more modifiers.
+    fn get_first_match(&self, modifiers: Modifiers) -> Option<&T> {
+        for (&AtLeastKey(modi), v) in self.bindings.iter() {
+            if modifiers.contains(modi) {
+                return Some(&v);
             }
-            while modifier_layers.len() < count as usize {
-                modifier_layers.push(BTreeMap::new());
-            }
-            modifier_layers[count as usize - 1].insert(AtLeastKey(modifiers), Bound);
         }
-        // Build the collisions map.
-        let mut mod_layer_index = 0;
-        // for mod_layer_index in 0..modifier_layers.len() {
-        while mod_layer_index < modifier_layers.len() {
-            let mod_layer = std::mem::take(&mut modifier_layers[mod_layer_index]);
-            let len = mod_layer.len();
-            for (i, (AtLeastKey(mod_i), _)) in
-                mod_layer.iter().take(len.saturating_sub(1)).enumerate()
-            {
-                let start = i + 1;
-                for (AtLeastKey(mod_o), _) in mod_layer.iter().skip(start).take(len - start) {
-                    let permutation = *mod_i | *mod_o;
-                    let permutation_mod_count = permutation.modifier_count() as usize;
-                    while modifier_layers.len() < permutation_mod_count {
-                        modifier_layers.push(BTreeMap::new());
-                    }
-                    let layer = &mut modifier_layers[permutation_mod_count - 1];
-
-                    if *layer.entry(AtLeastKey(permutation)).or_insert(NotBound) == NotBound {
-                        let perm_collisions =
-                            collisions.entry(permutation).or_insert(HashSet::new());
-                        perm_collisions.insert(*mod_i);
-                        perm_collisions.insert(*mod_o);
-                    }
-                }
-            }
-            mod_layer_index += 1;
-        }
-        collisions
+        None
     }
 }
 /// The actions and policies associated with each edge of a key stroke (press and release).
@@ -315,19 +369,20 @@ impl Default for Edges {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ModifierMatch::{AtLeast, Exact};
 
     #[test]
     fn test_colisions_three_single_and_one_double_modifiers() {
         let v = ();
-        let mut bindings = AtLeastBindings::new();
+        let mut bindings = ModifierMap::new();
         let shift = Modifiers::LEFT_SHIFT;
         let ctrl = Modifiers::LEFT_CTRL;
         let alt = Modifiers::LEFT_ALT;
-        bindings.insert(shift, v);
-        bindings.insert(ctrl, v);
-        bindings.insert(alt, v);
-        bindings.insert(shift | ctrl, v);
-        bindings.insert(Modifiers::NONE, v);
+        bindings.insert(AtLeast(shift), v);
+        bindings.insert(AtLeast(ctrl), v);
+        bindings.insert(AtLeast(alt), v);
+        bindings.insert(AtLeast(shift | ctrl), v);
+        bindings.insert(AtLeast(Modifiers::NONE), v);
 
         let collisions = bindings.collisions();
 
@@ -346,13 +401,13 @@ mod tests {
     #[test]
     fn test_colisions_three_single_modifiers() {
         let v = ();
-        let mut bindings = AtLeastBindings::new();
+        let mut bindings = ModifierMap::new();
         let shift = Modifiers::LEFT_SHIFT;
         let ctrl = Modifiers::LEFT_CTRL;
         let alt = Modifiers::LEFT_ALT;
-        bindings.insert(shift, v);
-        bindings.insert(ctrl, v);
-        bindings.insert(alt, v);
+        bindings.insert(AtLeast(shift), v);
+        bindings.insert(AtLeast(ctrl), v);
+        bindings.insert(AtLeast(alt), v);
 
         let collisions = bindings.collisions();
 
@@ -368,12 +423,13 @@ mod tests {
     #[test]
     fn test_colisions_two_single_modifiers() {
         let v = ();
-        let mut bindings = AtLeastBindings::new();
+        let mut bindings = ModifierMap::new();
         let shift = Modifiers::LEFT_SHIFT;
         let ctrl = Modifiers::LEFT_CTRL;
 
-        bindings.insert(shift, v);
-        bindings.insert(ctrl, v);
+        bindings.insert(AtLeast(shift), v);
+        bindings.insert(AtLeast(ctrl), v);
+
         let collisions = bindings.collisions();
         let shift_ctrl_collision = collisions.get(&(shift | ctrl)).unwrap();
         assert!(shift_ctrl_collision.contains(&shift));

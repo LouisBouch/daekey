@@ -57,6 +57,7 @@ impl Modifiers {
     }
 }
 /// Expose default values for the modifiers.
+// TODO: Use macro to ensure list is always up to date.
 impl Modifiers {
     pub const NONE: Modifiers = Modifiers(0);
 
@@ -71,15 +72,16 @@ impl Modifiers {
 
     pub const LEFT_META: Modifiers = Modifiers(1 << 6);
     pub const RIGHT_META: Modifiers = Modifiers(1 << 7);
-    const MODIFIERS_LIST: [(Modifiers, &str); 8] = [
-        (Self::LEFT_SHIFT, "Left_Shift"),
-        (Self::RIGHT_SHIFT, "Right_Shift"),
-        (Self::LEFT_ALT, "Left_Alt"),
-        (Self::RIGHT_ALT, "Right_Alt"),
-        (Self::LEFT_META, "Left_Meta"),
-        (Self::RIGHT_META, "Right_Meta"),
-        (Self::LEFT_CTRL, "Left_Ctrl"),
-        (Self::RIGHT_CTRL, "Right_Ctrl"),
+
+    pub const ALL_LIST: [Modifiers; 8] = [
+        Self::LEFT_SHIFT,
+        Self::RIGHT_SHIFT,
+        Self::LEFT_CTRL,
+        Self::RIGHT_CTRL,
+        Self::LEFT_ALT,
+        Self::RIGHT_ALT,
+        Self::LEFT_META,
+        Self::RIGHT_META,
     ];
 }
 impl BitOr for Modifiers {
@@ -90,9 +92,19 @@ impl BitOr for Modifiers {
 }
 impl Debug for Modifiers {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let modifier_list: [(Modifiers, &str); 8] = [
+            (Self::LEFT_SHIFT, "Left_Shift"),
+            (Self::RIGHT_SHIFT, "Right_Shift"),
+            (Self::LEFT_ALT, "Left_Alt"),
+            (Self::RIGHT_ALT, "Right_Alt"),
+            (Self::LEFT_META, "Left_Meta"),
+            (Self::RIGHT_META, "Right_Meta"),
+            (Self::LEFT_CTRL, "Left_Ctrl"),
+            (Self::RIGHT_CTRL, "Right_Ctrl"),
+        ];
         f.write_str("Modifiers(")?;
         let mut first = true;
-        for (modi, string_modi) in Self::MODIFIERS_LIST {
+        for (modi, string_modi) in modifier_list {
             if self.contains(modi) {
                 if !first {
                     f.write_str(" | ")?;

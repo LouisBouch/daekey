@@ -349,7 +349,7 @@ mod tests {
         let fr = b.build();
         // println!("{}", fr.as_ref().unwrap_err());
         dbg!(fr);
-        panic!();
+        todo!();// NEXTNEXT
         assert!(matches!(
             fr,
             Err(BindingsBuildError::ModifierCollision { .. })
